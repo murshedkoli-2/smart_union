@@ -394,7 +394,6 @@ export default function WarishDetailPage({ params }: { params: Promise<{ id: str
       document.body.removeChild(container)
       toast.success(`${language === 'bn' ? 'বাংলা' : 'English'} certificate saved & PDF downloaded!`)
     } catch (err) {
-      console.error(err)
       toast.error('PDF generation failed. Certificate was saved — retry from the certificate link.')
     }
 
@@ -515,7 +514,7 @@ export default function WarishDetailPage({ params }: { params: Promise<{ id: str
       pdf.addImage(imgData, 'JPEG', 0, 0, pw, rh <= ph ? rh : ph)
       pdf.save(`${isFamilyCertificate ? 'family_certificate' : 'warish_certificate'}_${language === 'bn' ? 'bangla' : 'english'}_${id.slice(-6)}.pdf`)
       document.body.removeChild(container)
-    } catch (err) { console.error(err); toast.error('PDF download failed.') }
+    } catch (err) { toast.error('PDF download failed.') }
     setProcessing(false)
   }
 
@@ -603,7 +602,6 @@ export default function WarishDetailPage({ params }: { params: Promise<{ id: str
       document.body.removeChild(container)
       toast.success('Application PDF downloaded successfully')
     } catch (err) {
-      console.error(err)
       toast.error('Failed to generate PDF. Please try again.')
     } finally {
       setProcessing(false)

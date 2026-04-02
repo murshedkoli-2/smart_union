@@ -103,7 +103,6 @@ export default function TaxDetailPage({ params }: { params: Promise<{ id: string
       pdf.save(`tax-receipt-${tax.payment_id.receipt_no}.pdf`)
     } catch (err) {
       setPdfError('Failed to generate PDF. Please try again.')
-      console.error(err)
     } finally {
       document.body.removeChild(container)
       setDownloading(false)

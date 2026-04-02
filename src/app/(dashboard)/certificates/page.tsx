@@ -38,7 +38,7 @@ export default function CertificatesPage() {
   const [typeFilter, setTypeFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const currentUser = useUser();
-  const { lang, t } = useLanguage();
+  const { lang } = useLanguage();
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [citizenProfile, setCitizenProfile] = useState<CitizenForCert | null>(null)
 
@@ -51,7 +51,7 @@ export default function CertificatesPage() {
             setCitizenProfile(d.data)
           }
         })
-        .catch(console.error)
+        .catch(() => {})
     }
   }, [currentUser])
 

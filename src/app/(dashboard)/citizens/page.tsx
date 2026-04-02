@@ -36,7 +36,7 @@ interface CitizensResponse {
 
 export default function CitizensPage() {
   const currentUser = useUser()
-  const { t, lang } = useLanguage()
+  const { lang } = useLanguage()
   const [page, setPage] = useState(1)
   const [search, setSearch] = useState('')
   const [wardFilter, setWardFilter] = useState('')

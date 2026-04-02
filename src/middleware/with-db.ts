@@ -14,7 +14,6 @@ export function withDb(handler: Handler): Handler {
     try {
       await connectDB()
     } catch (err) {
-      console.error('[DB connection error]', err)
       return errorResponse(err)
     }
     try {

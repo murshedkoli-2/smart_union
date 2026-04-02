@@ -285,19 +285,15 @@ export default function CitizenDetailPage() {
 
   const downloadTaxReceipt = async (paymentId: string) => {
     try {
-      console.log('Downloading receipt for payment ID:', paymentId)
-
       // Fetch receipt data
       const res = await apiCall(`/api/payments/${paymentId}/tax-receipt`, { method: 'GET' })
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({ message: 'Failed to fetch receipt data' }))
-        console.error('Receipt API error:', errorData)
         toast.error(errorData.message || 'Failed to fetch receipt data.')
         return
       }
 
       const { data } = await res.json()
-      console.log('Receipt data:', data)
 
       const { generateTaxReceiptHtml } = await import('@/lib/utils/tax-receipt-render')
       const receiptHtml = generateTaxReceiptHtml(data)

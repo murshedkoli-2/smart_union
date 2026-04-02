@@ -18,7 +18,6 @@ interface ProfileForm {
 
 export default function ProfilePage() {
   const router = useRouter()
-  const { t } = useLanguage()
   const [form, setForm] = useState<ProfileForm>({
     name: '',
     mobile: '',
