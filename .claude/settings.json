@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx ts-node:*)",
+      "Bash(npm install:*)",
+      "Bash(npx tsx:*)",
+      "Bash(mkdir -p \"d:/smart_union/src/app/\\(dashboard\\)/citizens/[id]\")",
+      "Bash(mkdir -p \"d:/smart_union/src/app/\\(dashboard\\)/families/[id]\")",
+      "Bash(mkdir -p \"d:/smart_union/src/app/\\(dashboard\\)/certificates/[id]\")",
+      "Bash(mkdir -p \"d:/smart_union/src/app/\\(dashboard\\)/relief/[programId]\")",
+      "Bash(mkdir -p \"d:/smart_union/src/app/\\(dashboard\\)/relief/lists/[listId]\")",
+      "Bash(find \"d:/smart_union/src/app/\\(dashboard\\)\" -name \"page.tsx\")",
+      "Bash(grep -rn \"from ''@/\" \"d:/smart_union/src/app/\\(dashboard\\)/relief/lists/[listId]/page.tsx\")",
+      "Bash(node -e \":*)",
+      "Bash(find d:/smart_union/src -type f \\\\\\(-name middleware.ts -o -name *auth* \\\\\\))",
+      "Bash(xargs grep:*)",
+      "Bash(find /d/smart_union -maxdepth 2 -type f \\\\\\(-name .env* -o -name *.env* \\\\\\))",
+      "Bash(find /d/smart_union/src -type f -name \"*.ts\" -exec grep -l \"\\\\.catch\\\\|error.*401\\\\|token.*expired\" {})",
+      "Bash(node -e \"const q = require\\(''qrcode''\\); q.toDataURL\\(''test''\\).then\\(v => console.log\\(v.slice\\(0,50\\)\\)\\).catch\\(e => console.log\\(''ERROR:'', e.message\\)\\)\")",
+      "Bash(xargs ls:*)",
+      "Bash(node -e \"require\\(''jspdf''\\); require\\(''html2canvas''\\); console.log\\(''ok''\\)\")",
+      "Bash(find /d/smart_union/src/app -path \"*\\(dashboard\\)*certificate*\" -type f)"
+    ],
+    "additionalDirectories": [
+      "d:\\smart_union\\src\\app\\api\\citizens\\[id]"
+    ]
+  }
+}

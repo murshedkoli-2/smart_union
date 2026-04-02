@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node --input-type=module --eval \"import z from ''zod''; const s = z.string\\(\\); console.log\\(typeof s.date\\);\")",
+      "Bash(npx tsc:*)",
+      "Bash(npm run:*)"
+    ]
+  }
+}

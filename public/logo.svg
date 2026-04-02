@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 60" width="60" height="60" role="img" aria-label="Smart Union Parishad">
+  <!-- Background rounded square -->
+  <rect width="60" height="60" rx="14" fill="#15803d"/>
+
+  <!-- Outer glow ring (subtle) -->
+  <rect width="60" height="60" rx="14" fill="none" stroke="#16a34a" stroke-width="1.5"/>
+
+  <!-- Flag pole -->
+  <rect x="29.5" y="5" width="1.5" height="9" fill="white" rx="0.5"/>
+  <!-- Bangladesh flag: green rectangle + red circle -->
+  <rect x="31" y="5" width="8" height="5.5" rx="0.5" fill="#006a4e"/>
+  <circle cx="35" cy="7.75" r="1.8" fill="#f42a41"/>
+
+  <!-- Roof pediment (triangle) -->
+  <polygon points="30,14 9,31 51,31" fill="white"/>
+  <!-- Pediment inner shadow -->
+  <polygon points="30,18 13,31 47,31" fill="#dcfce7"/>
+
+  <!-- Roof circular window -->
+  <circle cx="30" cy="24" r="3" fill="#15803d"/>
+  <circle cx="30" cy="24" r="1.8" fill="white"/>
+
+  <!-- Building body -->
+  <rect x="11" y="30" width="38" height="18" fill="white"/>
+
+  <!-- Three columns (pilasters) -->
+  <rect x="13" y="30" width="4.5" height="18" fill="#bbf7d0" rx="0.5"/>
+  <rect x="27.75" y="30" width="4.5" height="18" fill="#bbf7d0" rx="0.5"/>
+  <rect x="42.5" y="30" width="4.5" height="18" fill="#bbf7d0" rx="0.5"/>
+
+  <!-- Arched door (negative space) -->
+  <rect x="23.5" y="37" width="13" height="11" rx="1" fill="#15803d"/>
+  <ellipse cx="30" cy="37" rx="6.5" ry="4" fill="#15803d"/>
+
+  <!-- Door knob -->
+  <circle cx="35" cy="43" r="0.8" fill="#86efac"/>
+
+  <!-- Steps -->
+  <rect x="8"  y="48" width="44" height="3.5" rx="1" fill="white"/>
+  <rect x="5"  y="51.5" width="50" height="3.5" rx="1" fill="#f0fdf4"/>
+</svg>
