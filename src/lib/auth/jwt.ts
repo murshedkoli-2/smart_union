@@ -36,11 +36,3 @@ export function verifyRefreshToken(token: string): JwtRefreshPayload {
     throw new UnauthorizedError('Invalid or expired refresh token')
   }
 }
-
-export function decodeWithoutVerify(token: string): JwtAccessPayload | null {
-  try {
-    return jwt.decode(token) as JwtAccessPayload
-  } catch {
-    return null
-  }
-}

@@ -1,6 +1,26 @@
 import { z } from 'zod'
+import { ALL_PERMISSIONS, type Permission } from '@/constants/permissions'
 
 // ── Auth ─────────────────────────────────────────────────────────────────────
+
+/**
+ * The single password policy for the whole system.
+ *
+ * Every account-creating or password-changing schema must use this. Admin
+ * accounts previously accepted a 6-character password with no complexity
+ * requirement — a weaker rule for the more privileged account.
+ */
+export const PasswordSchema = z
+  .string()
+  .min(8, 'Password must be at least 8 characters')
+  .max(100)
+  .regex(
+    /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/,
+    'Password must contain uppercase, lowercase, and a number',
+  )
+
+/** Permissions must name a real capability — arbitrary strings are rejected. */
+export const PermissionSchema = z.enum(ALL_PERMISSIONS as [Permission, ...Permission[]])
 
 export const LoginSchema = z.object({
   email: z.string().email('Invalid email address').toLowerCase().trim(),
@@ -10,14 +30,7 @@ export const LoginSchema = z.object({
 export const RegisterSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters').max(100).trim(),
   email: z.string().email('Invalid email address').toLowerCase().trim(),
-  password: z
-    .string()
-    .min(8, 'Password must be at least 8 characters')
-    .max(100)
-    .regex(
-      /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/,
-      'Password must contain uppercase, lowercase, and a number',
-    ),
+  password: PasswordSchema,
   mobile: z.string().trim().optional(),
 })
 
@@ -93,29 +106,20 @@ export const CreateCitizenSchema = z.object({
 export const CreateAdminSchema = z.object({
   name: z.string().min(2).max(100).trim(),
   email: z.string().email().toLowerCase().trim(),
-  password: z.string().min(6).max(100),
+  password: PasswordSchema,
   mobile: z.string().trim().optional(),
-  permissions: z.array(z.string()).default([]),
+  permissions: z.array(PermissionSchema).default([]),
 })
 
 export const UpdateUserPermissionsSchema = z.object({
-  permissions: z.array(z.string()),
+  permissions: z.array(PermissionSchema),
 })
 
 export const UpdateProfileSchema = z.object({
   name: z.string().min(2).max(100).trim(),
   mobile: z.string().trim().optional(),
   current_password: z.string().min(1, 'Current password is required').optional().or(z.literal('')),
-  new_password: z
-    .string()
-    .min(8, 'Password must be at least 8 characters')
-    .max(100)
-    .regex(
-      /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/,
-      'Password must contain uppercase, lowercase, and a number',
-    )
-    .optional()
-    .or(z.literal('')),
+  new_password: PasswordSchema.optional().or(z.literal('')),
 }).refine(data => {
   if (data.new_password && !data.current_password) return false;
   return true;

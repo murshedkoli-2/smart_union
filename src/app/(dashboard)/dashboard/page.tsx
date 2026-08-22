@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useLanguage } from '@/contexts/LanguageContext'
+import { apiCall } from '@/lib/utils/api-client'
+import { useUser } from '@/hooks/useUser'
 
 interface Stats {
   fiscal_year: string
@@ -91,18 +93,10 @@ export default function DashboardPage() {
   const [stats, setStats] = useState<Stats | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [user, setUser] = useState<{ name?: string }>({})
+  const user = useUser()
 
   useEffect(() => {
-    try {
-      const stored = sessionStorage.getItem('user')
-      if (stored) setUser(JSON.parse(stored))
-    } catch { /* ignore */ }
-
-    const token = sessionStorage.getItem('access_token')
-    fetch('/api/dashboard/stats', {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    })
+    apiCall('/api/dashboard/stats')
       .then((r) => r.json())
       .then((d) => {
         if (d.success) setStats(d.data)
@@ -138,7 +132,7 @@ export default function DashboardPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-gray-900">
-            {t('welcomeBack')}, {user.name ?? 'Admin'}
+            {t('welcomeBack')}, {user?.name ?? 'Admin'}
           </h1>
           <p className="text-sm text-gray-500 mt-0.5">
             {t('fiscalYear')}:{' '}
@@ -163,7 +157,7 @@ export default function DashboardPage() {
             <div className="absolute -bottom-10 right-32 h-32 w-32 rounded-full bg-emerald-400 opacity-20 blur-2xl"></div>
             <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
               <div>
-                <h2 className="text-2xl sm:text-3xl font-bold mb-2">{lang === 'bn' ? `স্মার্ট ইউনিয়নে স্বাগতম, ${user.name ?? 'নাগরিক'}!` : `Welcome to Smart Union, ${user.name ?? 'Citizen'}!`}</h2>
+                <h2 className="text-2xl sm:text-3xl font-bold mb-2">{lang === 'bn' ? `স্মার্ট ইউনিয়নে স্বাগতম, ${user?.name ?? 'নাগরিক'}!` : `Welcome to Smart Union, ${user?.name ?? 'Citizen'}!`}</h2>
                 <p className="text-emerald-50 text-sm max-w-xl leading-relaxed">
                   {lang === 'bn' ? 'আপনার হাতের মুঠোয় নির্বিঘ্ন ইউনিয়ন সেবা। সার্টিফিকেট থেকে শুরু করে হোল্ডিং ট্যাক্স, অনলাইনে সহজেই আপনার নাগরিক দায়িত্ব এবং আবেদন পরিচালনা করুন।' : 'Experience seamless union services at your fingertips. From certificates to holding taxes, manage your civic responsibilities and applications effortlessly online.'}
                 </p>

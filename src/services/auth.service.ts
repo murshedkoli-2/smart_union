@@ -9,8 +9,8 @@ import {
   ConflictError,
   NotFoundError,
   ValidationError,
-  BadRequestError,
 } from '@/lib/utils/errors'
+import { withTransaction } from '@/lib/db/transaction'
 import { createAuditLog } from './audit-log.service'
 import type { AuthResponse, AuthTokens, LoginDto, RegisterDto } from '@/types/auth.types'
 import type { JwtAccessPayload } from '@/types/auth.types'
@@ -61,7 +61,7 @@ export async function register(dto: RegisterDto & { citizen_data?: unknown }, ac
     name,
     email,
     password: hashedPassword,
-    role: 'citizen' as 'citizen',
+    role: 'citizen' as const,
     permissions: [],
     status,
     mobile,
@@ -70,45 +70,60 @@ export async function register(dto: RegisterDto & { citizen_data?: unknown }, ac
     createData.created_by = new mongoose.Types.ObjectId(actor.sub)
   }
 
-  const user = await User.create(createData)
-  const userId = user._id as mongoose.Types.ObjectId
+  // 7-9. Account, citizen record and audit entries commit together.
+  //
+  // Without this, a citizen record failing its unique index (duplicate NID)
+  // left behind an account with no profile: the citizen could sign in but had
+  // nothing to act on, and could not register again because the email was
+  // taken. The whole registration succeeds or none of it does.
+  const { user, citizen } = await withTransaction(async (txn) => {
+    const [createdUser] = await User.create([createData], txn ? { session: txn } : {})
+    const userId = createdUser._id as mongoose.Types.ObjectId
 
-  // 8. Create citizen record if citizen_data provided
-  let citizen = null
-  if (citizenParsed?.success) {
-    const cData = citizenParsed.data
-    const citizenDoc: Record<string, unknown> = {
-      ...cData,
-      date_of_birth: new Date(cData.date_of_birth),
-      ward_no: cData.address.ward_no,
-      status: 'pending',
-      user_id: userId,
-      created_by: userId,
+    let createdCitizen = null
+    if (citizenParsed?.success) {
+      const cData = citizenParsed.data
+      const citizenDoc: Record<string, unknown> = {
+        ...cData,
+        date_of_birth: new Date(cData.date_of_birth),
+        ward_no: cData.address.ward_no,
+        status: 'pending',
+        user_id: userId,
+        created_by: userId,
+      }
+      if (!citizenDoc.holding_no) delete citizenDoc.holding_no
+      if (!citizenDoc.nid_no) delete citizenDoc.nid_no
+      if (!citizenDoc.birth_cert_no) delete citizenDoc.birth_cert_no
+
+      const [created] = await Citizen.create([citizenDoc], txn ? { session: txn } : {})
+      createdCitizen = created
+
+      await createAuditLog(
+        {
+          user_id: userId,
+          user_role: 'citizen',
+          action: 'citizen.create',
+          target_model: 'Citizen',
+          target_id: created._id as mongoose.Types.ObjectId,
+          status: 'success',
+        },
+        txn,
+      )
     }
-    if (!citizenDoc.holding_no) delete citizenDoc.holding_no
-    if (!citizenDoc.nid_no) delete citizenDoc.nid_no
-    if (!citizenDoc.birth_cert_no) delete citizenDoc.birth_cert_no
 
-    citizen = await Citizen.create(citizenDoc)
+    await createAuditLog(
+      {
+        user_id: actor?.sub ?? userId,
+        user_role: actor?.role ?? 'citizen',
+        action: 'user.register',
+        target_model: 'User',
+        target_id: userId,
+        status: 'success',
+      },
+      txn,
+    )
 
-    await createAuditLog({
-      user_id: userId,
-      user_role: 'citizen',
-      action: 'citizen.create',
-      target_model: 'Citizen',
-      target_id: citizen._id as mongoose.Types.ObjectId,
-      status: 'success',
-    })
-  }
-
-  // 9. Audit log for user registration
-  await createAuditLog({
-    user_id: actor?.sub ?? userId,
-    user_role: actor?.role ?? 'citizen',
-    action: 'user.register',
-    target_model: 'User',
-    target_id: userId,
-    status: 'success',
+    return { user: createdUser, citizen: createdCitizen }
   })
 
   // 10. Return user without sensitive fields

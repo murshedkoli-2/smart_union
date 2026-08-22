@@ -1,5 +1,8 @@
 import type mongoose from 'mongoose'
+import type { ClientSession } from 'mongoose'
 import AuditLog from '@/models/AuditLog'
+import { containsFilter } from '@/lib/utils/mongo-query'
+import { getRequestContext } from '@/lib/observability/request-context'
 import type { Role } from '@/constants/roles'
 
 export interface AuditLogParams {
@@ -18,27 +21,54 @@ export interface AuditLogParams {
 /**
  * Creates an audit log entry.
  * Called at the END of every state-changing service method — NEVER skip.
- * Failures are logged to console but do not throw to avoid killing the main request.
+ *
+ * IP and user agent are taken from the ambient request context when the caller
+ * does not supply them, so every entry made on the request path is attributable
+ * without each service having to accept a request object.
+ *
+ * Failure handling depends on whether a transaction is in play:
+ *
+ * - With a `session`, the entry is part of the atomic unit and failures
+ *   propagate. A committed change that lost its audit record is exactly what
+ *   an accountability system must not produce, so the whole operation rolls
+ *   back instead.
+ *
+ * - Without a session there is nothing to roll back to, so a failure is
+ *   swallowed rather than turning a completed write into a 500 for the user.
+ *   It is logged under a grep-able marker — wire AUDIT_WRITE_FAILED into
+ *   whatever alerting the deployment has, because silent audit loss is the
+ *   failure mode this whole subsystem exists to prevent.
  */
-export async function createAuditLog(params: AuditLogParams): Promise<void> {
-  try {
-    const doc: Record<string, unknown> = {
-      user_id: params.user_id,
-      user_role: params.user_role,
-      action: params.action,
-      target_model: params.target_model,
-      status: params.status ?? 'success',
-    }
-    if (params.target_id != null) doc.target_id = params.target_id
-    if (params.changes != null) doc.changes = params.changes
-    if (params.ip_address) doc.ip_address = params.ip_address
-    if (params.user_agent) doc.user_agent = params.user_agent
-    if (params.error_message) doc.error_message = params.error_message
+export async function createAuditLog(
+  params: AuditLogParams,
+  session?: ClientSession,
+): Promise<void> {
+  const context = getRequestContext()
 
-    await AuditLog.create(doc)
+  const doc: Record<string, unknown> = {
+    user_id: params.user_id,
+    user_role: params.user_role,
+    action: params.action,
+    target_model: params.target_model,
+    status: params.status ?? 'success',
+  }
+  if (params.target_id != null) doc.target_id = params.target_id
+  if (params.changes != null) doc.changes = params.changes
+
+  const ipAddress = params.ip_address ?? context?.ip
+  const userAgent = params.user_agent ?? context?.userAgent
+  if (ipAddress) doc.ip_address = ipAddress
+  if (userAgent) doc.user_agent = userAgent
+  if (params.error_message) doc.error_message = params.error_message
+
+  try {
+    await AuditLog.create([doc], session ? { session } : {})
   } catch (err) {
-    // Audit log failure must never crash the application
-    console.error('[AuditLog] Failed to write audit log:', err)
+    if (session) throw err
+    console.error(
+      `AUDIT_WRITE_FAILED action=${params.action} target=${params.target_model}:${String(params.target_id)} actor=${String(params.user_id)}`,
+      err,
+    )
   }
 }
 
@@ -69,7 +99,9 @@ export async function getAuditLogs(query: AuditLogQuery) {
 
   const filter: Record<string, unknown> = {}
   if (user_id) filter.user_id = user_id
-  if (action) filter.action = { $regex: action, $options: 'i' }
+  // Escaped so the filter cannot be turned into an attacker-supplied regex.
+  const actionFilter = containsFilter(action)
+  if (actionFilter) filter.action = actionFilter
   if (target_model) filter.target_model = target_model
   if (target_id) filter.target_id = target_id
   if (status) filter.status = status

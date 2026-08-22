@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { withDb } from '@/middleware/with-db'
+import { withRateLimit } from '@/middleware/rate-limit'
 import { successResponse, errorResponse } from '@/lib/utils/api-response'
 import { UnauthorizedError } from '@/lib/utils/errors'
+import { REFRESH_TOKEN_COOKIE, setAuthCookies } from '@/lib/auth/cookies'
+import { RATE_LIMITS } from '@/lib/security/rate-limit'
 import * as AuthService from '@/services/auth.service'
 import type { RouteContext } from '@/types/api.types'
-
-const REFRESH_TOKEN_COOKIE = 'refresh_token'
-const COOKIE_MAX_AGE = 7 * 24 * 60 * 60
 
 async function handler(req: NextRequest, _ctx: RouteContext): Promise<NextResponse> {
   const rawRefreshToken = req.cookies.get(REFRESH_TOKEN_COOKIE)?.value
@@ -16,23 +16,13 @@ async function handler(req: NextRequest, _ctx: RouteContext): Promise<NextRespon
 
   const tokens = await AuthService.refreshTokens(rawRefreshToken)
 
-  const response = successResponse(
-    { accessToken: tokens.accessToken },
-    'Token refreshed successfully',
-  )
-
-  // Rotate cookie with new refresh token
-  response.cookies.set(REFRESH_TOKEN_COOKIE, tokens.refreshToken, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'strict',
-    maxAge: COOKIE_MAX_AGE,
-    path: '/api/auth',
-  })
+  // Both tokens are rotated and returned as httpOnly cookies only.
+  const response = successResponse(null, 'Token refreshed successfully')
+  setAuthCookies(response, tokens.accessToken, tokens.refreshToken)
 
   return response
 }
 
-export const POST = withDb((req, ctx) =>
-  handler(req, ctx).catch(errorResponse),
+export const POST = withRateLimit('auth:refresh', RATE_LIMITS.refresh)(
+  withDb((req, ctx) => handler(req, ctx).catch(errorResponse)),
 )

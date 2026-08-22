@@ -1,8 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { withDb } from '@/middleware/with-db'
 import { authenticate } from '@/middleware/authenticate'
 import { authorize } from '@/middleware/authorize'
-import { successResponse, errorResponse } from '@/lib/utils/api-response'
+import { successResponse } from '@/lib/utils/api-response'
 import * as CertificateService from '@/services/certificate.service'
 import type { AuthenticatedRequest, RouteContext } from '@/types/api.types'
 
@@ -30,14 +30,12 @@ const deleteHandler = async (req: AuthenticatedRequest, ctx: RouteContext): Prom
 
 export const GET = withDb(
   authenticate(authorize(['secretary', 'entrepreneur'], 'certificate.view')(getHandler)),
-) as (req: NextRequest, ctx: RouteContext) => Promise<NextResponse>
+)
 
 export const PATCH = withDb(
   authenticate(authorize(['secretary', 'entrepreneur'], 'certificate.create')(patchHandler)),
-) as (req: NextRequest, ctx: RouteContext) => Promise<NextResponse>
+)
 
 export const DELETE = withDb(
   authenticate(authorize(['secretary', 'entrepreneur'])(deleteHandler)),
-) as (req: NextRequest, ctx: RouteContext) => Promise<NextResponse>
-
-export { errorResponse }
+)

@@ -55,7 +55,7 @@ export default function ReliefListPage() {
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault()
     setSaving(true)
-    const payload: Record<string, any> = { citizen_id: form.citizen_id }
+    const payload: Record<string, unknown> = { citizen_id: form.citizen_id }
     if (form.allocation_amount) payload.allocation_amount = Number(form.allocation_amount)
 
     const res = await apiCall(`/api/relief/lists/${listId}/beneficiaries`, {

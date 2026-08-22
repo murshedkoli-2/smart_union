@@ -1,8 +1,9 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { withDb } from '@/middleware/with-db'
 import { authenticate } from '@/middleware/authenticate'
 import { authorize } from '@/middleware/authorize'
-import { successResponse, createdResponse, errorResponse } from '@/lib/utils/api-response'
+import { successResponse, createdResponse } from '@/lib/utils/api-response'
+import { parsePagination } from '@/lib/utils/pagination'
 import * as CitizenService from '@/services/citizen.service'
 import type { AuthenticatedRequest, RouteContext } from '@/types/api.types'
 
@@ -13,8 +14,7 @@ const getHandler = async (req: AuthenticatedRequest, _ctx: RouteContext): Promis
     ward_no: searchParams.get('ward_no') ? Number(searchParams.get('ward_no')) : undefined,
     status: searchParams.get('status') ?? undefined,
     search: searchParams.get('search') ?? undefined,
-    page: Number(searchParams.get('page') ?? 1),
-    limit: Number(searchParams.get('limit') ?? 20),
+    ...parsePagination(searchParams),
   }
   const result = await CitizenService.listCitizens(query, req.user)
   return successResponse({
@@ -34,10 +34,8 @@ const postHandler = async (req: AuthenticatedRequest, _ctx: RouteContext): Promi
 
 export const GET = withDb(
   authenticate(authorize(['secretary', 'entrepreneur'], 'citizen.view')(getHandler)),
-) as (req: NextRequest, ctx: RouteContext) => Promise<NextResponse>
+)
 
 export const POST = withDb(
   authenticate(authorize(['secretary', 'entrepreneur', 'citizen'], 'citizen.create')(postHandler)),
-) as (req: NextRequest, ctx: RouteContext) => Promise<NextResponse>
-
-export { errorResponse }
+)

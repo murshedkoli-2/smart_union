@@ -68,7 +68,7 @@ export default function ReliefProgramPage() {
   const handleCreateList = async (e: React.FormEvent) => {
     e.preventDefault()
     setSaving(true)
-    const payload: Record<string, any> = {
+    const payload: Record<string, unknown> = {
       list_name: listForm.list_name,
       program_id: programId,
     }

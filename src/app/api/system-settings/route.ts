@@ -1,8 +1,9 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { withDb } from '@/middleware/with-db'
 import { authenticate } from '@/middleware/authenticate'
 import { authorize } from '@/middleware/authorize'
-import { errorResponse, successResponse } from '@/lib/utils/api-response'
+import { successResponse } from '@/lib/utils/api-response'
+import { PERMISSIONS } from '@/constants/permissions'
 import * as SystemSettingsService from '@/services/system-settings.service'
 import type { AuthenticatedRequest, RouteContext } from '@/types/api.types'
 
@@ -19,12 +20,15 @@ const patchHandler = async (req: AuthenticatedRequest, ctx: RouteContext): Promi
   return successResponse(settings, 'System settings updated successfully')
 }
 
-export const GET = withDb(
-  authenticate(authorize(['secretary', 'entrepreneur'], 'settings.view')(getHandler)),
-) as (req: NextRequest, ctx: RouteContext) => Promise<NextResponse>
+// Read is gated on role only, deliberately.
+//
+// This previously required the permission 'settings.view', which does not
+// exist in PERMISSIONS — so no entrepreneur could ever hold it and every read
+// 403'd for them. Secretary bypasses permission checks, which is why it went
+// unnoticed. These settings carry the union name, chairman name and logo that
+// certificate rendering needs, so any admin role must be able to read them.
+export const GET = withDb(authenticate(authorize(['secretary', 'entrepreneur'])(getHandler)))
 
 export const PATCH = withDb(
-  authenticate(authorize(['secretary', 'entrepreneur'], 'settings.manage')(patchHandler)),
-) as (req: NextRequest, ctx: RouteContext) => Promise<NextResponse>
-
-export { errorResponse }
+  authenticate(authorize(['secretary', 'entrepreneur'], PERMISSIONS.SETTINGS_MANAGE)(patchHandler)),
+)

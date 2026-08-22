@@ -5,11 +5,11 @@ import toast from 'react-hot-toast'
 import Link from 'next/link'
 import { useApi } from '@/hooks/useApi'
 import { apiCall } from '@/lib/utils/api-client'
+import { downloadHtmlAsPdf } from '@/lib/utils/html-to-pdf'
 import { useUser, isSuperAdmin } from '@/hooks/useUser'
 import StatusBadge from '@/components/ui/StatusBadge'
 import Modal from '@/components/ui/Modal'
 import QRCode from 'qrcode'
-import { buildCertificateVerificationUrl } from '@/lib/utils/certificate-verification'
 import { generateFamilyApplicationHtml } from '@/lib/utils/family-application-render'
 import {
   generateFamilyCertificateBnHtml,
@@ -266,13 +266,10 @@ export default function WarishDetailPage({ params }: { params: Promise<{ id: str
     const newlyIssuedCert = payload.data
 
     try {
-      const [{ default: html2canvas }, { default: jsPDF }] = await Promise.all([
-        import('html2canvas'),
-        import('jspdf'),
-      ])
-
       const certNo = newlyIssuedCert?.certificate_no || ''
-      const verificationUrl = certNo ? buildCertificateVerificationUrl(certNo) : ''
+      // The QR URL is built server-side from the certificate's verification
+      // token. The client holds no token, so there is no fallback to construct.
+      const verificationUrl = newlyIssuedCert?.qr_code_url || ''
       const qrDataUrl = verificationUrl ? await QRCode.toDataURL(verificationUrl, { width: 96, margin: 1 }) : undefined
 
       const html = isFamilyCertificate
@@ -373,27 +370,13 @@ export default function WarishDetailPage({ params }: { params: Promise<{ id: str
                 } satisfies WarishCertificateData)
           )
 
-      const container = document.createElement('div')
-      container.style.cssText = 'position:fixed; left:-9999px; top:0; width:794px; background:#fff;'
-      container.innerHTML = html
-      document.body.appendChild(container)
-      await new Promise(r => setTimeout(r, 700))
-
-      const canvas = await html2canvas(container, {
-        scale: 2, useCORS: true, allowTaint: true,
-        width: 794, windowWidth: 794, backgroundColor: '#ffffff', logging: false,
-      })
-
-      const imgData = canvas.toDataURL('image/jpeg', 0.97)
-      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
-      const pw = pdf.internal.pageSize.getWidth()
-      const ph = pdf.internal.pageSize.getHeight()
-      const rh = pw * (canvas.height / canvas.width)
-      pdf.addImage(imgData, 'JPEG', 0, 0, pw, rh <= ph ? rh : ph)
-      pdf.save(`${isFamilyCertificate ? 'family_certificate' : 'warish_certificate'}_${language === 'bn' ? 'bangla' : 'english'}_${id.slice(-6)}.pdf`)
-      document.body.removeChild(container)
+      await downloadHtmlAsPdf(
+        html,
+        `${isFamilyCertificate ? 'family_certificate' : 'warish_certificate'}_${language === 'bn' ? 'bangla' : 'english'}_${id.slice(-6)}.pdf`,
+        { settleMs: 700 },
+      )
       toast.success(`${language === 'bn' ? 'বাংলা' : 'English'} certificate saved & PDF downloaded!`)
-    } catch (err) {
+    } catch {
       toast.error('PDF generation failed. Certificate was saved — retry from the certificate link.')
     }
 
@@ -424,12 +407,7 @@ export default function WarishDetailPage({ params }: { params: Promise<{ id: str
         }
       }
 
-      const [{ default: html2canvas }, { default: jsPDF }] = await Promise.all([
-        import('html2canvas'),
-        import('jspdf'),
-      ])
-
-      const verificationUrl = storedQrUrl || (certNo ? buildCertificateVerificationUrl(certNo) : '')
+      const verificationUrl = storedQrUrl
       const qrDataUrl = verificationUrl ? await QRCode.toDataURL(verificationUrl, { width: 96, margin: 1 }) : undefined
 
       const html = isFamilyCertificate
@@ -500,21 +478,12 @@ export default function WarishDetailPage({ params }: { params: Promise<{ id: str
                 } satisfies WarishCertificateData)
           )
 
-      const container = document.createElement('div')
-      container.style.cssText = 'position:fixed; left:-9999px; top:0; width:794px; background:#fff;'
-      container.innerHTML = html
-      document.body.appendChild(container)
-      await new Promise(r => setTimeout(r, 700))
-      const canvas = await html2canvas(container, { scale: 2, useCORS: true, allowTaint: true, width: 794, windowWidth: 794, backgroundColor: '#ffffff', logging: false })
-      const imgData = canvas.toDataURL('image/jpeg', 0.97)
-      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
-      const pw = pdf.internal.pageSize.getWidth()
-      const ph = pdf.internal.pageSize.getHeight()
-      const rh = pw * (canvas.height / canvas.width)
-      pdf.addImage(imgData, 'JPEG', 0, 0, pw, rh <= ph ? rh : ph)
-      pdf.save(`${isFamilyCertificate ? 'family_certificate' : 'warish_certificate'}_${language === 'bn' ? 'bangla' : 'english'}_${id.slice(-6)}.pdf`)
-      document.body.removeChild(container)
-    } catch (err) { toast.error('PDF download failed.') }
+      await downloadHtmlAsPdf(
+        html,
+        `${isFamilyCertificate ? 'family_certificate' : 'warish_certificate'}_${language === 'bn' ? 'bangla' : 'english'}_${id.slice(-6)}.pdf`,
+        { settleMs: 700 },
+      )
+    } catch { toast.error('PDF download failed.') }
     setProcessing(false)
   }
 
@@ -525,11 +494,6 @@ export default function WarishDetailPage({ params }: { params: Promise<{ id: str
     }
     setProcessing(true)
     try {
-      const [{ default: html2canvas }, { default: jsPDF }] = await Promise.all([
-        import('html2canvas'),
-        import('jspdf'),
-      ])
-
       const html = isFamilyCertificate
         ? generateFamilyApplicationHtml({
             applicant: {
@@ -581,27 +545,13 @@ export default function WarishDetailPage({ params }: { params: Promise<{ id: str
             },
           })
 
-      const container = document.createElement('div')
-      container.style.cssText = 'position:fixed; left:-9999px; top:0; width:794px; background:#fff; font-size:13px;'
-      container.innerHTML = html
-      document.body.appendChild(container)
-      await new Promise(r => setTimeout(r, 600))
-
-      const canvas = await html2canvas(container, {
-        scale: 2, useCORS: true, allowTaint: true,
-        width: 794, windowWidth: 794, backgroundColor: '#ffffff', logging: false,
-      })
-
-      const imgData = canvas.toDataURL('image/jpeg', 0.97)
-      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
-      const pageWidth = pdf.internal.pageSize.getWidth()
-      const pageHeight = pdf.internal.pageSize.getHeight()
-      const renderedHeight = pageWidth * (canvas.height / canvas.width)
-      pdf.addImage(imgData, 'JPEG', 0, 0, pageWidth, renderedHeight <= pageHeight ? renderedHeight : pageHeight)
-      pdf.save(`${isFamilyCertificate ? 'family_certificate' : 'warish_application'}_${application._id.slice(-8)}.pdf`)
-      document.body.removeChild(container)
+      await downloadHtmlAsPdf(
+        html,
+        `${isFamilyCertificate ? 'family_certificate' : 'warish_application'}_${application._id.slice(-8)}.pdf`,
+        { containerStyle: 'font-size:13px;' },
+      )
       toast.success('Application PDF downloaded successfully')
-    } catch (err) {
+    } catch {
       toast.error('Failed to generate PDF. Please try again.')
     } finally {
       setProcessing(false)

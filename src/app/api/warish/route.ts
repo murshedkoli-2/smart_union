@@ -1,8 +1,9 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { withDb } from '@/middleware/with-db'
 import { authenticate } from '@/middleware/authenticate'
 import { authorize } from '@/middleware/authorize'
-import { successResponse, createdResponse, paginatedResponse, errorResponse } from '@/lib/utils/api-response'
+import { successResponse, createdResponse } from '@/lib/utils/api-response'
+import { parsePagination } from '@/lib/utils/pagination'
 import * as WarishService from '@/services/warish.service'
 import type { AuthenticatedRequest, RouteContext } from '@/types/api.types'
 
@@ -14,8 +15,7 @@ const getHandler = async (req: AuthenticatedRequest, _ctx: RouteContext): Promis
     status: searchParams.get('status') ?? undefined,
     applicant_citizen_id: searchParams.get('applicant_citizen_id') ?? undefined,
     application_type: searchParams.get('application_type') ?? undefined,
-    page: Number(searchParams.get('page') ?? 1),
-    limit: Number(searchParams.get('limit') ?? 20),
+    ...parsePagination(searchParams),
   }
   const result = await WarishService.listWarish(query, req.user)
   return successResponse(result)
@@ -30,10 +30,8 @@ const postHandler = async (req: AuthenticatedRequest, _ctx: RouteContext): Promi
 
 export const GET = withDb(
   authenticate(authorize(['secretary', 'entrepreneur', 'citizen'], 'warish.view')(getHandler)),
-) as (req: NextRequest, ctx: RouteContext) => Promise<NextResponse>
+)
 
 export const POST = withDb(
   authenticate(authorize(['secretary', 'entrepreneur', 'citizen'], 'warish.create')(postHandler)),
-) as (req: NextRequest, ctx: RouteContext) => Promise<NextResponse>
-
-export { errorResponse }
+)

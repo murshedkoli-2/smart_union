@@ -50,6 +50,16 @@ export class BadRequestError extends AppError {
   }
 }
 
+export class TooManyRequestsError extends AppError {
+  /** Seconds the caller should wait before retrying. */
+  public readonly retryAfter: number
+
+  constructor(retryAfter: number, message = 'Too many requests. Please try again later.') {
+    super(message, 429)
+    this.retryAfter = retryAfter
+  }
+}
+
 export class ServiceError extends AppError {
   constructor(message = 'Internal server error') {
     super(message, 500, false)

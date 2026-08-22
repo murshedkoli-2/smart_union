@@ -2,8 +2,7 @@
 
 import Image from 'next/image'
 import Link from 'next/link'
-import { usePathname, useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { usePathname } from 'next/navigation'
 import { useLanguage } from '@/contexts/LanguageContext'
 import type { TranslationKey } from '@/lib/i18n'
 import { type AppUser, hasPermission } from '@/hooks/useUser'
@@ -78,7 +77,6 @@ interface SidebarProps {
 
 export default function Sidebar({ user, open, onClose }: SidebarProps) {
   const pathname = usePathname()
-  const router = useRouter()
   const { t } = useLanguage()
 
   return (

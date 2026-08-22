@@ -1,31 +1,43 @@
-import type { NextRequest, NextResponse } from 'next/server'
+import type { NextRequest } from 'next/server'
 import { verifyAccessToken } from '@/lib/auth/jwt'
+import { ACCESS_TOKEN_COOKIE } from '@/lib/auth/cookies'
 import { errorResponse } from '@/lib/utils/api-response'
 import { UnauthorizedError } from '@/lib/utils/errors'
-import type { AuthenticatedRequest, RouteContext } from '@/types/api.types'
-
-type AuthenticatedHandler = (
-  req: AuthenticatedRequest,
-  ctx: RouteContext,
-) => Promise<NextResponse | Response>
-
-type Handler = (req: NextRequest, ctx: RouteContext) => Promise<NextResponse | Response>
+import type {
+  AuthenticatedHandler,
+  AuthenticatedRequest,
+  RouteContext,
+  RouteHandler,
+} from '@/types/api.types'
 
 /**
- * Verifies JWT access token from Authorization header.
- * Attaches decoded payload to req.user.
+ * Extracts the access token.
+ *
+ * The httpOnly `access_token` cookie is the browser path and is preferred.
+ * The Authorization header remains supported for non-browser callers
+ * (scripts, integrations) that cannot hold a cookie jar.
+ */
+function extractToken(req: NextRequest): string {
+  const cookieToken = req.cookies.get(ACCESS_TOKEN_COOKIE)?.value
+  if (cookieToken) return cookieToken
+
+  const authHeader = req.headers.get('Authorization')
+  if (authHeader?.startsWith('Bearer ')) {
+    const headerToken = authHeader.slice(7).trim()
+    if (headerToken) return headerToken
+  }
+
+  throw new UnauthorizedError('Authentication required')
+}
+
+/**
+ * Verifies the JWT access token and attaches the decoded payload to req.user.
  * Must be wrapped with withDb() first.
  */
-export function authenticate(handler: AuthenticatedHandler): Handler {
+export function authenticate(handler: AuthenticatedHandler): RouteHandler {
   return async (req: NextRequest, ctx: RouteContext) => {
     try {
-      const authHeader = req.headers.get('Authorization')
-      if (!authHeader?.startsWith('Bearer ')) {
-        throw new UnauthorizedError('Authorization header missing or malformed')
-      }
-
-      const token = authHeader.slice(7)
-      const payload = verifyAccessToken(token)
+      const payload = verifyAccessToken(extractToken(req))
 
       // Attach user payload to request (cast is safe — we just validated)
       const authenticatedReq = req as AuthenticatedRequest

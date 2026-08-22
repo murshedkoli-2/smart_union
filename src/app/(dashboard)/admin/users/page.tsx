@@ -1,12 +1,11 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import toast from 'react-hot-toast'
-import { useRouter } from 'next/navigation'
 import { useApi } from '@/hooks/useApi'
 import { apiCall } from '@/lib/utils/api-client'
-import { useUser, hasPermission } from '@/hooks/useUser'
 import { PERMISSIONS, ALL_PERMISSIONS } from '@/constants/permissions'
+import RequirePermission from '@/components/auth/RequirePermission'
 import PageHeader from '@/components/ui/PageHeader'
 import DataTable, { Column } from '@/components/ui/DataTable'
 import Pagination from '@/components/ui/Pagination'
@@ -57,22 +56,13 @@ const PERMISSION_LABELS: Record<string, string> = {
   'template.manage': 'Manage Certificate Templates',
 }
 
-export default function AdminUsersPage() {
-  const router = useRouter()
-  const currentUser = useUser()
+function AdminUsersPageView() {
   const [page, setPage] = useState(1)
   const [roleFilter, setRoleFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [showCreate, setShowCreate] = useState(false)
   const [createForm, setCreateForm] = useState({ ...defaultCreateForm })
   const [saving, setSaving] = useState(false)
-
-  // Guard: only those with USER_MANAGE can access this page
-  useEffect(() => {
-    if (currentUser !== null && !hasPermission(currentUser, PERMISSIONS.USER_MANAGE)) {
-      router.replace('/dashboard')
-    }
-  }, [currentUser, router])
 
 
 
@@ -232,10 +222,6 @@ export default function AdminUsersPage() {
 
   const users = data ?? []
   const total = pagination?.total ?? 0
-
-  if (!currentUser || !hasPermission(currentUser, PERMISSIONS.USER_MANAGE)) {
-    return null
-  }
 
   return (
     <div className="p-4 sm:p-6 space-y-4 sm:space-y-5">
@@ -412,5 +398,13 @@ export default function AdminUsersPage() {
         </div>
       </Modal>
     </div>
+  )
+}
+
+export default function AdminUsersPage() {
+  return (
+    <RequirePermission permission={PERMISSIONS.USER_MANAGE}>
+      <AdminUsersPageView />
+    </RequirePermission>
   )
 }

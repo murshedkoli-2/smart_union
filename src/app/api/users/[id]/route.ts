@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { withDb } from '@/middleware/with-db'
 import { authenticate } from '@/middleware/authenticate'
 import { authorize } from '@/middleware/authorize'
@@ -35,10 +35,8 @@ const patchHandler = async (req: AuthenticatedRequest, ctx: RouteContext): Promi
 
 export const GET = withDb(
   authenticate(authorize(['secretary', 'entrepreneur', 'citizen'])(getHandler)),
-) as (req: NextRequest, ctx: RouteContext) => Promise<NextResponse>
+)
 
 export const PATCH = withDb(
   authenticate(authorize(['secretary', 'entrepreneur'])(patchHandler)),
-) as (req: NextRequest, ctx: RouteContext) => Promise<NextResponse>
-
-export { errorResponse }
+)

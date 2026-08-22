@@ -1,68 +1,72 @@
-// Singleton promise to deduplicate concurrent refresh calls
-let refreshingPromise: Promise<string | null> | null = null
-
 /**
- * Silently refresh the access token using the httpOnly refresh_token cookie.
- * Updates sessionStorage and the access_token cookie on success.
- * Returns the new token or null on failure.
+ * Client-side API helpers.
+ *
+ * Both the access token and the refresh token are httpOnly cookies set by the
+ * server, so this module never sees, stores, or forwards a token. Every
+ * request just needs `credentials: 'include'`.
  */
-export async function refreshAccessToken(): Promise<string | null> {
-  if (typeof window === 'undefined') return null
+
+// Singleton promise to deduplicate concurrent refresh calls.
+//
+// This MUST be the only path to /api/auth/refresh. Refresh rotates the stored
+// token, so two refreshes racing means the second invalidates the first, the
+// server treats the reuse as token theft and wipes the session — logging out
+// a user who did nothing wrong. Every caller goes through refreshSession().
+let refreshingPromise: Promise<boolean> | null = null
+
+async function doRefresh(): Promise<boolean> {
+  if (typeof window === 'undefined') return false
   try {
     const res = await fetch('/api/auth/refresh', {
       method: 'POST',
       credentials: 'include',
     })
-    if (!res.ok) return null
-    const data = await res.json()
-    const token: string | undefined = data.data?.accessToken ?? data.accessToken
-    if (!token) return null
-    sessionStorage.setItem('access_token', token)
-    document.cookie = `access_token=${token}; path=/; max-age=900; SameSite=Strict${
-      location.protocol === 'https:' ? '; Secure' : ''
-    }`
-    return token
+    return res.ok
   } catch {
-    return null
+    return false
   }
 }
 
-function getOrStartRefresh(): Promise<string | null> {
+/**
+ * Silently refresh the session using the httpOnly refresh_token cookie.
+ * Concurrent callers share a single in-flight request.
+ * Resolves true when the session was renewed.
+ */
+export function refreshSession(): Promise<boolean> {
   if (!refreshingPromise) {
-    refreshingPromise = refreshAccessToken().finally(() => {
+    refreshingPromise = doRefresh().finally(() => {
       refreshingPromise = null
     })
   }
   return refreshingPromise
 }
 
-function redirectToLogin(): void {
+/** Clears client-held UI state and sends the user to the login page. */
+export function redirectToLogin(): void {
+  if (typeof window === 'undefined') return
+  // Only non-sensitive UI state (display name, role) lives here — the tokens
+  // are httpOnly cookies and are cleared by the server on logout/expiry.
   sessionStorage.clear()
-  document.cookie = 'access_token=; max-age=0; path=/'
   window.location.href = '/login'
 }
 
-/** Helper for making authenticated API calls from client. Auto-refreshes on 401. */
+/** Authenticated API call. Refreshes once on 401 and retries. */
 export async function apiCall(url: string, options?: RequestInit): Promise<Response> {
-  const token = typeof window !== 'undefined' ? sessionStorage.getItem('access_token') : null
-
-  const buildRequest = (t: string | null) =>
+  const buildRequest = () =>
     fetch(url, {
       ...options,
       headers: {
         'Content-Type': 'application/json',
-        ...(t ? { Authorization: `Bearer ${t}` } : {}),
         ...options?.headers,
       },
       credentials: 'include',
     })
 
-  const res = await buildRequest(token)
+  const res = await buildRequest()
 
-  // On 401: attempt silent token refresh then retry once
   if (res.status === 401 && typeof window !== 'undefined') {
-    const newToken = await getOrStartRefresh()
-    if (newToken) return buildRequest(newToken)
+    const refreshed = await refreshSession()
+    if (refreshed) return buildRequest()
     redirectToLogin()
   }
 

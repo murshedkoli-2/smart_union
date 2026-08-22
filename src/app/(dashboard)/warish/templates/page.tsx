@@ -45,7 +45,6 @@ export default function WarishTemplatesPage() {
   const [editing, setEditing] = useState<WarishTemplate | null>(null)
   const [form, setForm] = useState({ ...emptyForm })
   const [saving, setSaving] = useState(false)
-  const [confirmDelete, setConfirmDelete] = useState<WarishTemplate | null>(null)
 
   const { data: bnData, loading: bnLoading, refetch: bnRefetch } = useApi<TemplateResponse>(
     '/api/certificate-templates?certificate_category=WAR&language=bn&limit=50',
@@ -72,7 +71,6 @@ export default function WarishTemplatesPage() {
 
   const templates = activeLang === 'bn' ? (bnData?.data ?? []) : (enData?.data ?? [])
   const loading = activeLang === 'bn' ? bnLoading : enLoading
-  const refetch = activeLang === 'bn' ? bnRefetch : enRefetch
 
 
   const openCreate = () => {

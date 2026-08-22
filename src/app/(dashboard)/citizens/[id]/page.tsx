@@ -5,11 +5,13 @@ import toast from 'react-hot-toast'
 import { useParams, useRouter } from 'next/navigation'
 import CitizenRegistrationForm from '@/components/forms/CitizenRegistrationForm'
 import IssueCertificateModal from '@/components/certificates/IssueCertificateModal'
+import WarishCreateModal, { type WarishApplicationType } from '@/components/warish/WarishCreateModal'
 import Modal from '@/components/ui/Modal'
 import StatusBadge from '@/components/ui/StatusBadge'
 import DataTable, { Column } from '@/components/ui/DataTable'
 import { useApi } from '@/hooks/useApi'
 import { apiCall } from '@/lib/utils/api-client'
+import { downloadHtmlAsPdf } from '@/lib/utils/html-to-pdf'
 import { useUser, hasPermission } from '@/hooks/useUser'
 import { PERMISSIONS } from '@/constants/permissions'
 
@@ -103,37 +105,16 @@ interface WarishApplication {
   heirs: Heir[]
 }
 
-const emptyHeir = (): Heir => ({ name_bn: '', name_en: '', relation: '', birth_date: '', nid_no: '' })
-
-const defaultWarishForm = {
-  application_type: 'warish' as 'warish' | 'family_certificate',
-  deceased_name_bn: '',
-  deceased_name_en: '',
-  deceased_father_name_bn: '',
-  deceased_father_name_en: '',
-  deceased_mother_name_bn: '',
-  deceased_mother_name_en: '',
-  deceased_nid: '',
-  date_of_death: '',
-  heirs: [emptyHeir()],
-  family_members: [emptyHeir()],
-}
 
 export default function CitizenDetailPage() {
   const currentUser = useUser()
   const { id } = useParams<{ id: string }>()
   const router = useRouter()
   const [activeTab, setActiveTab] = useState<'profile' | 'documents' | 'holding_tax' | 'warish'>('profile')
-  const [showDeleteModal, setShowDeleteModal] = useState(false)
-  const [deleting, setDeleting] = useState(false)
   const [showIssueCert, setShowIssueCert] = useState(false)
 
-  // Warish create state
-  const [showWarishCreate, setShowWarishCreate] = useState(false)
-  const [warishIsPreview, setWarishIsPreview] = useState(false)
-  const [warishSaving, setWarishSaving] = useState(false)
-  const [warishForm, setWarishForm] = useState({ ...defaultWarishForm, heirs: [emptyHeir()], family_members: [emptyHeir()] })
-  const [warishErrorMsg, setWarishErrorMsg] = useState('')
+  // Warish create flow — state and modal live in WarishCreateModal.
+  const [warishCreateType, setWarishCreateType] = useState<WarishApplicationType | null>(null)
 
   // Holding tax state
   const [showAssessTax, setShowAssessTax] = useState(false)
@@ -175,66 +156,6 @@ export default function CitizenDetailPage() {
       refetch()
     } else {
       toast.error('Failed to reject.')
-    }
-  }
-
-  const handleDelete = async () => {
-    setDeleting(true)
-    const res = await apiCall(`/api/citizens/${id}`, { method: 'DELETE' })
-    setDeleting(false)
-    if (res.ok) {
-      setShowDeleteModal(false)
-      router.push('/citizens')
-    } else {
-      const payload = await res.json().catch(() => ({}))
-      toast.error(payload.message ?? 'Failed to delete citizen.')
-    }
-  }
-
-  const openWarishCreate = (type: 'warish' | 'family_certificate') => {
-    setWarishForm({ ...defaultWarishForm, application_type: type, heirs: [emptyHeir()], family_members: [emptyHeir()] })
-    setWarishIsPreview(false)
-    setWarishErrorMsg('')
-    setShowWarishCreate(true)
-  }
-
-  const updateWarishMember = (collection: 'heirs' | 'family_members', i: number, field: keyof Heir, value: string) => {
-    setWarishForm((f) => {
-      const members = [...f[collection]]
-      members[i] = { ...members[i], [field]: value }
-      return { ...f, [collection]: members }
-    })
-  }
-
-  const addWarishMember = (collection: 'heirs' | 'family_members') =>
-    setWarishForm((f) => ({ ...f, [collection]: [...f[collection], emptyHeir()] }))
-
-  const removeWarishMember = (collection: 'heirs' | 'family_members', i: number) =>
-    setWarishForm((f) => ({ ...f, [collection]: f[collection].filter((_, idx) => idx !== i) }))
-
-  const handleWarishCreate = async (status: string = 'pending') => {
-    setWarishSaving(true)
-    setWarishErrorMsg('')
-    const memberKey = warishForm.application_type === 'family_certificate' ? 'family_members' : 'heirs'
-    const res = await apiCall('/api/warish', {
-      method: 'POST',
-      body: JSON.stringify({
-        ...warishForm,
-        status,
-        applicant_citizen_id: id,
-        [memberKey]: warishForm[memberKey],
-      }),
-    })
-    setWarishSaving(false)
-    if (res.ok) {
-      setShowWarishCreate(false)
-      setWarishIsPreview(false)
-      toast.success(`${warishForm.application_type === 'family_certificate' ? 'Family certificate' : 'Warish'} application created.`)
-      refetchWarish()
-    } else {
-      const d = await res.json()
-      setWarishErrorMsg(d.message ?? 'Failed to create application.')
-      setWarishIsPreview(false)
     }
   }
 
@@ -298,43 +219,14 @@ export default function CitizenDetailPage() {
       const { generateTaxReceiptHtml } = await import('@/lib/utils/tax-receipt-render')
       const receiptHtml = generateTaxReceiptHtml(data)
 
-      // Create container for rendering
-      const container = document.createElement('div')
-      container.style.cssText = 'position:fixed; left:-9999px; top:0; width:794px; margin:0; padding:0; background:#fff;'
-      container.innerHTML = receiptHtml
-      document.body.appendChild(container)
-
-      try {
-        const [{ default: html2canvas }, { default: jsPDF }] = await Promise.all([
-          import('html2canvas'),
-          import('jspdf'),
-        ])
-
-        const canvas = await html2canvas(container, {
-          scale: 2,
-          useCORS: true,
-          width: 794,
-          windowWidth: 794,
-          backgroundColor: '#ffffff',
-        })
-
-        const imgData = canvas.toDataURL('image/jpeg', 0.95)
-        const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' })
-        const pageWidth = pdf.internal.pageSize.getWidth()
-        const pageHeight = pdf.internal.pageSize.getHeight()
-        const scale = Math.min(pageWidth / canvas.width, pageHeight / canvas.height)
-        const renderWidth = canvas.width * scale
-        const renderHeight = canvas.height * scale
-        const offsetX = (pageWidth - renderWidth) / 2
-        const offsetY = (pageHeight - renderHeight) / 2
-
-        pdf.addImage(imgData, 'JPEG', offsetX, offsetY, renderWidth, renderHeight)
-
-        const receiptNo = data.payment?.receipt_no || 'receipt'
-        pdf.save(`holding-tax-receipt-${receiptNo}.pdf`)
-      } finally {
-        document.body.removeChild(container)
-      }
+      const receiptNo = data.payment?.receipt_no || 'receipt'
+      // 'contain' so the receipt is never cropped — a clipped bottom would cut
+      // off the amount, which is the part that matters on a payment receipt.
+      await downloadHtmlAsPdf(receiptHtml, `holding-tax-receipt-${receiptNo}.pdf`, {
+        fit: 'contain',
+        quality: 0.95,
+        containerStyle: 'margin:0; padding:0;',
+      })
     } catch (error) {
       console.error('Failed to generate receipt PDF:', error)
       const errorMessage = error instanceof Error ? error.message : 'Failed to generate receipt PDF.'
@@ -816,14 +708,14 @@ export default function CitizenDetailPage() {
             {hasPermission(currentUser, PERMISSIONS.WARISH_CREATE) && (
               <>
                 <button
-                  onClick={() => openWarishCreate('warish')}
+                  onClick={() => setWarishCreateType('warish')}
                   className="flex items-center gap-2 rounded-lg bg-green-700 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-green-800"
                 >
                   <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
                   New Warish Application
                 </button>
                 <button
-                  onClick={() => openWarishCreate('family_certificate')}
+                  onClick={() => setWarishCreateType('family_certificate')}
                   className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
                 >
                   <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
@@ -852,34 +744,15 @@ export default function CitizenDetailPage() {
         }}
       />
 
-      <Modal
-        open={showDeleteModal}
-        onClose={() => setShowDeleteModal(false)}
-        title="Delete Citizen"
-        size="sm"
-      >
-        <div className="space-y-4">
-          <p className="text-sm text-gray-600">
-            Are you sure you want to delete <strong>{citizen.name_bn}</strong>? This action cannot be undone.
-          </p>
-          <div className="flex justify-end gap-2">
-            <button
-              onClick={() => setShowDeleteModal(false)}
-              className="rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-              disabled={deleting}
-            >
-              Cancel
-            </button>
-            <button
-              disabled
-              className="cursor-not-allowed rounded-lg bg-red-400 px-4 py-2 text-sm font-medium text-white opacity-60"
-              title="Delete is disabled"
-            >
-              Delete
-            </button>
-          </div>
-        </div>
-      </Modal>
+      {/*
+        The Delete Citizen modal was removed as unreachable dead code: nothing
+        ever called setShowDeleteModal(true), and its Delete button was
+        hardcoded `disabled`, so no user could reach or use it.
+
+        DELETE /api/citizens/[id] still exists and works (soft delete via
+        deleted_at). Re-enabling this needs a deliberate decision about who may
+        delete a citizen record — restore from git history if that is wanted.
+      */}
 
       {/* Assess Holding Tax Modal */}
       <Modal
@@ -932,243 +805,14 @@ export default function CitizenDetailPage() {
           </div>
         </form>
       </Modal>
-      {/* Warish / Family Certificate Create Modal */}
-      <Modal
-        open={showWarishCreate}
-        onClose={() => { setShowWarishCreate(false); setWarishIsPreview(false); setWarishErrorMsg('') }}
-        title={warishForm.application_type === 'family_certificate' ? 'New Family Certificate Application' : 'New Warish Application'}
-        size="lg"
-      >
-        {warishIsPreview ? (
-          <div className="space-y-5">
-            <div className="rounded-xl bg-blue-50 border border-blue-100 px-4 py-3 text-sm text-blue-700">
-              Review the details before submitting.
-            </div>
+      <WarishCreateModal
+        citizenId={id}
+        citizen={{ name_bn: citizen.name_bn, name_en: citizen.name_en }}
+        applicationType={warishCreateType}
+        onClose={() => setWarishCreateType(null)}
+        onCreated={refetchWarish}
+      />
 
-            <div className="rounded-xl border border-gray-100 overflow-hidden">
-              <div className="bg-gray-50 px-4 py-2.5 border-b border-gray-100">
-                <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">
-                  {warishForm.application_type === 'family_certificate' ? 'Family Head Information' : 'Deceased Person Information'}
-                </p>
-              </div>
-              <div className="grid grid-cols-2 gap-px bg-gray-100">
-                {[
-                  [warishForm.application_type === 'family_certificate' ? 'Head Name (BN)' : 'Deceased Name (BN)', warishForm.deceased_name_bn],
-                  [warishForm.application_type === 'family_certificate' ? 'Head Name (EN)' : 'Deceased Name (EN)', warishForm.deceased_name_en],
-                  ["Father's Name (BN)", warishForm.deceased_father_name_bn],
-                  ["Father's Name (EN)", warishForm.deceased_father_name_en],
-                  ...(warishForm.deceased_mother_name_bn ? [["Mother's Name (BN)", warishForm.deceased_mother_name_bn], ["Mother's Name (EN)", warishForm.deceased_mother_name_en || '—']] : []),
-                  ...(warishForm.application_type === 'warish' && warishForm.date_of_death ? [['Date of Death', new Date(warishForm.date_of_death).toLocaleDateString('en-GB')]] : []),
-                  ['Applicant', `${citizen.name_bn} (${citizen.name_en})`],
-                ].map(([label, value]) => (
-                  <div key={label} className="bg-white px-4 py-3">
-                    <p className="text-xs text-gray-400 mb-0.5">{label}</p>
-                    <p className="text-sm font-medium text-gray-900">{value || '—'}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="rounded-xl border border-gray-100 overflow-hidden">
-              <div className="bg-gray-50 px-4 py-2.5 border-b border-gray-100 flex items-center justify-between">
-                <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">
-                  {warishForm.application_type === 'family_certificate' ? 'Family Members' : 'Heirs'}
-                </p>
-                <span className="text-xs text-gray-400">
-                  {(warishForm.application_type === 'family_certificate' ? warishForm.family_members : warishForm.heirs).length} person(s)
-                </span>
-              </div>
-              <div className="divide-y divide-gray-50">
-                {(warishForm.application_type === 'family_certificate' ? warishForm.family_members : warishForm.heirs).map((m, idx) => (
-                  <div key={idx} className="px-4 py-3 flex items-center gap-4">
-                    <span className="w-6 h-6 rounded-full bg-gray-100 text-xs font-bold text-gray-500 flex items-center justify-center flex-shrink-0">{idx + 1}</span>
-                    <div className="flex-1 grid grid-cols-3 gap-3 text-sm">
-                      <div><span className="text-gray-400 text-xs">Name</span><p className="font-medium text-gray-900">{m.name_bn} / {m.name_en}</p></div>
-                      <div><span className="text-gray-400 text-xs">Relation</span><p className="text-gray-700">{m.relation || '—'}</p></div>
-                      <div><span className="text-gray-400 text-xs">NID</span><p className="text-gray-700">{m.nid_no || '—'}</p></div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {warishErrorMsg && (
-              <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{warishErrorMsg}</p>
-            )}
-
-            <div className="flex justify-end gap-3 pt-2">
-              <button type="button" onClick={() => setWarishIsPreview(false)}
-                className="px-4 py-2 text-sm rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50">
-                Back to Edit
-              </button>
-              <button type="button" onClick={() => handleWarishCreate('draft')} disabled={warishSaving}
-                className="px-4 py-2 text-sm rounded-xl border border-green-600 text-green-700 font-medium hover:bg-green-50 disabled:opacity-50">
-                {warishSaving ? 'Saving...' : 'Save as Draft'}
-              </button>
-              <button type="button" onClick={() => handleWarishCreate('pending')} disabled={warishSaving}
-                className="px-4 py-2 text-sm rounded-xl bg-green-700 text-white font-semibold hover:bg-green-800 disabled:opacity-50">
-                {warishSaving ? 'Submitting...' : 'Submit Application'}
-              </button>
-            </div>
-          </div>
-        ) : (
-          <form onSubmit={(e) => { e.preventDefault(); setWarishIsPreview(true) }} className="space-y-5" autoComplete="off">
-            {/* Subject Info */}
-            <div className="rounded-xl border border-gray-100 overflow-hidden">
-              <div className={`px-4 py-2.5 border-b border-gray-100 ${warishForm.application_type === 'family_certificate' ? 'bg-blue-50' : 'bg-green-50'}`}>
-                <p className={`text-xs font-semibold uppercase tracking-wider ${warishForm.application_type === 'family_certificate' ? 'text-blue-600' : 'text-green-700'}`}>
-                  {warishForm.application_type === 'family_certificate' ? 'Family Head Information' : 'Deceased Person Information'}
-                </p>
-              </div>
-              <div className="p-4 grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">
-                    {warishForm.application_type === 'family_certificate' ? 'পরিবার প্রধানের নাম (বাংলা) *' : 'মৃত ব্যক্তির নাম (বাংলা) *'}
-                  </label>
-                  <input required type="text" value={warishForm.deceased_name_bn}
-                    onChange={(e) => setWarishForm((f) => ({ ...f, deceased_name_bn: e.target.value }))}
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">
-                    {warishForm.application_type === 'family_certificate' ? 'Head of Family Name (English) *' : 'Deceased Name (English) *'}
-                  </label>
-                  <input required type="text" value={warishForm.deceased_name_en}
-                    onChange={(e) => setWarishForm((f) => ({ ...f, deceased_name_en: e.target.value }))}
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">পিতার নাম (বাংলা) *</label>
-                  <input required type="text" value={warishForm.deceased_father_name_bn}
-                    onChange={(e) => setWarishForm((f) => ({ ...f, deceased_father_name_bn: e.target.value }))}
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Father&apos;s Name (English) *</label>
-                  <input required type="text" value={warishForm.deceased_father_name_en}
-                    onChange={(e) => setWarishForm((f) => ({ ...f, deceased_father_name_en: e.target.value }))}
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">মাতার নাম (বাংলা)</label>
-                  <input type="text" value={warishForm.deceased_mother_name_bn}
-                    onChange={(e) => setWarishForm((f) => ({ ...f, deceased_mother_name_bn: e.target.value }))}
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Mother&apos;s Name (English)</label>
-                  <input type="text" value={warishForm.deceased_mother_name_en}
-                    onChange={(e) => setWarishForm((f) => ({ ...f, deceased_mother_name_en: e.target.value }))}
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
-                </div>
-                {warishForm.application_type === 'warish' && (
-                  <>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Date of Death *</label>
-                      <input required type="date" value={warishForm.date_of_death}
-                        onChange={(e) => setWarishForm((f) => ({ ...f, date_of_death: e.target.value }))}
-                        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">মৃত ব্যক্তির NID নং</label>
-                      <input type="text" value={warishForm.deceased_nid}
-                        onChange={(e) => setWarishForm((f) => ({ ...f, deceased_nid: e.target.value }))}
-                        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
-                    </div>
-                  </>
-                )}
-                <div className="col-span-2">
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Applicant (Citizen)</label>
-                  <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">
-                    {citizen.name_bn} ({citizen.name_en})
-                    <span className="ml-2 text-xs text-emerald-600 font-medium">✓ Pre-filled from profile</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Members / Heirs */}
-            {(() => {
-              const memberKey = warishForm.application_type === 'family_certificate' ? 'family_members' : 'heirs'
-              const members = warishForm[memberKey]
-              const isFam = warishForm.application_type === 'family_certificate'
-              return (
-                <div className="rounded-xl border border-gray-100 overflow-hidden">
-                  <div className="bg-gray-50 px-4 py-2.5 border-b border-gray-100 flex items-center justify-between">
-                    <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">
-                      {isFam ? 'Family Members' : 'Heirs'}
-                    </p>
-                    <button type="button" onClick={() => addWarishMember(memberKey)}
-                      className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-3 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50">
-                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-                      {isFam ? 'Add Member' : 'Add Heir'}
-                    </button>
-                  </div>
-                  <div className="divide-y divide-gray-50 p-2">
-                    {members.map((heir, i) => (
-                      <div key={i} className="rounded-lg p-3 hover:bg-gray-50">
-                        <div className="flex items-center justify-between mb-2.5">
-                          <span className="flex items-center gap-2">
-                            <span className="w-5 h-5 rounded-full bg-green-100 text-xs font-bold text-green-700 flex items-center justify-center">{i + 1}</span>
-                            <span className="text-xs font-medium text-gray-500">{isFam ? `Member ${i + 1}` : `Heir ${i + 1}`}</span>
-                          </span>
-                          {members.length > 1 && (
-                            <button type="button" onClick={() => removeWarishMember(memberKey, i)}
-                              className="text-xs text-red-400 hover:text-red-600 font-medium">Remove</button>
-                          )}
-                        </div>
-                        <div className="grid grid-cols-2 gap-2">
-                          <input type="text" placeholder="নাম (বাংলা)" required value={heir.name_bn}
-                            onChange={(e) => updateWarishMember(memberKey, i, 'name_bn', e.target.value)}
-                            className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
-                          <input type="text" placeholder="Name (English)" required value={heir.name_en}
-                            onChange={(e) => updateWarishMember(memberKey, i, 'name_en', e.target.value)}
-                            className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
-                          <select required value={heir.relation}
-                            onChange={(e) => updateWarishMember(memberKey, i, 'relation', e.target.value)}
-                            className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 bg-white">
-                            <option value="">Relation</option>
-                            <option value="Son">Son (পুত্র)</option>
-                            <option value="Daughter">Daughter (কন্যা)</option>
-                            <option value="Wife">Wife (স্ত্রী)</option>
-                            <option value="Husband">Husband (স্বামী)</option>
-                            <option value="Father">Father (পিতা)</option>
-                            <option value="Mother">Mother (মাতা)</option>
-                            <option value="Brother">Brother (ভাই)</option>
-                            <option value="Sister">Sister (বোন)</option>
-                          </select>
-                          <input type="date" required value={heir.birth_date}
-                            onChange={(e) => updateWarishMember(memberKey, i, 'birth_date', e.target.value)}
-                            className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
-                          <input type="text" placeholder="NID Number" value={heir.nid_no}
-                            onChange={(e) => updateWarishMember(memberKey, i, 'nid_no', e.target.value)}
-                            className="col-span-2 rounded-lg border border-gray-200 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )
-            })()}
-
-            {warishErrorMsg && (
-              <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{warishErrorMsg}</p>
-            )}
-
-            <div className="flex justify-end gap-3 pt-1">
-              <button type="button"
-                onClick={() => { setShowWarishCreate(false); setWarishErrorMsg('') }}
-                className="px-4 py-2 text-sm rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50">
-                Cancel
-              </button>
-              <button type="submit"
-                className={`px-5 py-2 text-sm rounded-xl font-semibold text-white transition-colors ${warishForm.application_type === 'family_certificate' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-green-700 hover:bg-green-800'}`}>
-                Preview & Continue
-              </button>
-            </div>
-          </form>
-        )}
-      </Modal>
     </div>
   )
 }

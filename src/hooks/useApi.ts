@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { refreshAccessToken } from '@/lib/utils/api-client'
+import { refreshSession, redirectToLogin } from '@/lib/utils/api-client'
 
 interface PaginationMeta {
   total: number
@@ -32,31 +32,24 @@ export function useApi<T>(
     setError(null)
 
     const fetchData = async () => {
-      const token =
-        typeof window !== 'undefined' ? sessionStorage.getItem('access_token') : null
-
-      const doFetch = (t: string | null) =>
+      // Auth travels as an httpOnly cookie — nothing to attach by hand.
+      const doFetch = () =>
         fetch(url, {
-          headers: {
-            'Content-Type': 'application/json',
-            ...(t ? { Authorization: `Bearer ${t}` } : {}),
-          },
+          headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
         })
 
       try {
-        let res = await doFetch(token)
+        let res = await doFetch()
 
-        // On 401: silently refresh token and retry once
+        // On 401: silently refresh the session and retry once. refreshSession()
+        // is deduplicated, so several hooks mounting together issue one refresh.
         if (res.status === 401 && typeof window !== 'undefined') {
-          const newToken = await refreshAccessToken()
-          if (newToken) {
-            res = await doFetch(newToken)
+          const refreshed = await refreshSession()
+          if (refreshed) {
+            res = await doFetch()
           } else {
-            // Refresh failed — redirect to login
-            sessionStorage.clear()
-            document.cookie = 'access_token=; max-age=0; path=/'
-            window.location.href = '/login'
+            redirectToLogin()
             return
           }
         }
@@ -86,7 +79,7 @@ export function useApi<T>(
     return () => {
       cancelled = true
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [tick, url, depsKey])
 
   return { data, loading, error, refetch, pagination }

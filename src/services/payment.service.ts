@@ -2,18 +2,31 @@ import mongoose from 'mongoose'
 import Payment, { type IPayment } from '@/models/Payment'
 import Cashbook from '@/models/Cashbook'
 import Tax from '@/models/Tax'
-import Citizen from '@/models/Citizen'
-import User from '@/models/User'
 import { CreatePaymentSchema } from '@/lib/utils/validators'
 import { NotFoundError, ValidationError, BadRequestError } from '@/lib/utils/errors'
 import { generateReceiptNo, getCurrentFiscalYear } from '@/lib/utils/serial-generator'
+import { inTransaction } from '@/lib/db/transaction'
 import { createAuditLog } from './audit-log.service'
 import { getSystemSettings } from './system-settings.service'
 import type { JwtAccessPayload } from '@/types/auth.types'
 
 // ── Collect Payment ───────────────────────────────────────────────────────────
 
-export async function collectPayment(dto: unknown, actor: JwtAccessPayload) {
+/**
+ * Records a cash payment and its matching cashbook entry.
+ *
+ * Payment, ledger entry and audit record are written in one transaction: a
+ * receipt without a ledger line silently unbalances the books, and nobody
+ * notices until a manual reconciliation.
+ *
+ * Pass `session` to join a larger atomic operation (certificate approval
+ * collects a payment and approves the certificate as a single unit).
+ */
+export async function collectPayment(
+  dto: unknown,
+  actor: JwtAccessPayload,
+  session?: mongoose.ClientSession,
+) {
   const parsed = CreatePaymentSchema.safeParse(dto)
   if (!parsed.success) {
     throw new ValidationError('Validation failed', parsed.error.flatten().fieldErrors)
@@ -24,7 +37,8 @@ export async function collectPayment(dto: unknown, actor: JwtAccessPayload) {
   const year = new Date().getFullYear()
   const fiscalYear = getCurrentFiscalYear()
 
-  // Generate receipt number atomically
+  // Outside the transaction on purpose — see withTransaction. A rolled-back
+  // payment burns a receipt number rather than risking a duplicate.
   const receiptNo = await generateReceiptNo(year)
 
   // Determine cashbook source
@@ -35,42 +49,52 @@ export async function collectPayment(dto: unknown, actor: JwtAccessPayload) {
         ? 'certificate'
         : 'other'
 
-  // Create payment
-  const paymentData: Partial<IPayment> = {
-    receipt_no: receiptNo,
-    payment_type,
-    source_type,
-    reference_id: new mongoose.Types.ObjectId(reference_id),
-    amount,
-    payment_method: 'cash',
-    paid_by_citizen: new mongoose.Types.ObjectId(paid_by_citizen),
-    collected_by: new mongoose.Types.ObjectId(actor.sub),
-  }
-  if (note) paymentData.note = note
-  const payment = await Payment.create(paymentData)
+  return inTransaction(session, async (txn) => {
+    const paymentData: Partial<IPayment> = {
+      receipt_no: receiptNo,
+      payment_type,
+      source_type,
+      reference_id: new mongoose.Types.ObjectId(reference_id),
+      amount,
+      payment_method: 'cash',
+      paid_by_citizen: new mongoose.Types.ObjectId(paid_by_citizen),
+      collected_by: new mongoose.Types.ObjectId(actor.sub),
+    }
+    if (note) paymentData.note = note
 
-  // ALWAYS create a cashbook entry
-  await Cashbook.create({
-    entry_type: 'income',
-    source: cashbookSource,
-    amount,
-    reference_id: payment._id,
-    reference_type: 'Payment',
-    description: `${source_type} payment, receipt: ${receiptNo}`,
-    fiscal_year: fiscalYear,
-    recorded_by: new mongoose.Types.ObjectId(actor.sub),
+    const [payment] = await Payment.create([paymentData], txn ? { session: txn } : {})
+
+    // ALWAYS create a cashbook entry
+    await Cashbook.create(
+      [
+        {
+          entry_type: 'income',
+          source: cashbookSource,
+          amount,
+          reference_id: payment._id,
+          reference_type: 'Payment',
+          description: `${source_type} payment, receipt: ${receiptNo}`,
+          fiscal_year: fiscalYear,
+          recorded_by: new mongoose.Types.ObjectId(actor.sub),
+        },
+      ],
+      txn ? { session: txn } : {},
+    )
+
+    await createAuditLog(
+      {
+        user_id: actor.sub,
+        user_role: actor.role,
+        action: 'payment.collect',
+        target_model: 'Payment',
+        target_id: payment._id as mongoose.Types.ObjectId,
+        status: 'success',
+      },
+      txn,
+    )
+
+    return payment.toObject()
   })
-
-  await createAuditLog({
-    user_id: actor.sub,
-    user_role: actor.role,
-    action: 'payment.collect',
-    target_model: 'Payment',
-    target_id: payment._id as mongoose.Types.ObjectId,
-    status: 'success',
-  })
-
-  return payment.toObject()
 }
 
 // ── List Payments ─────────────────────────────────────────────────────────────
@@ -92,8 +116,13 @@ export async function listPayments(
   if (source_type) filter.source_type = source_type
   if (collected_by) filter.collected_by = new mongoose.Types.ObjectId(collected_by)
 
-  // Admin can only see payments they personally collected
-  if (actor.role === 'entrepreneur' && !collected_by) {
+  // An entrepreneur may only see payments they personally collected.
+  //
+  // This assignment must be unconditional and must come AFTER the caller's
+  // `collected_by` filter. Previously it was skipped whenever the caller
+  // supplied `collected_by`, so `?collected_by=<someone else's id>` read
+  // another collector's payment history.
+  if (actor.role === 'entrepreneur') {
     filter.collected_by = new mongoose.Types.ObjectId(actor.sub)
   }
 

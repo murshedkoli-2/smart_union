@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import toast from 'react-hot-toast'
 import { useApi } from '@/hooks/useApi'
 import { apiCall } from '@/lib/utils/api-client'
@@ -8,9 +8,8 @@ import PageHeader from '@/components/ui/PageHeader'
 import DataTable, { Column } from '@/components/ui/DataTable'
 import Pagination from '@/components/ui/Pagination'
 import Modal from '@/components/ui/Modal'
-import { useRouter } from 'next/navigation'
-import { useUser, hasPermission } from '@/hooks/useUser'
 import { PERMISSIONS } from '@/constants/permissions'
+import RequirePermission from '@/components/auth/RequirePermission'
 
 interface CertificateTemplate {
   _id: string
@@ -46,21 +45,13 @@ function isCitizenshipTemplate(name: string): boolean {
   return /নাগরিকত্ব|citizenship/.test(normalized)
 }
 
-export default function CertificateTemplatesPage() {
-  const router = useRouter()
-  const currentUser = useUser()
+function CertificateTemplatesPageView() {
   const [page, setPage] = useState(1)
   const [langFilter, setLangFilter] = useState('')
   const [showCreate, setShowCreate] = useState(false)
   const [editingTemplate, setEditingTemplate] = useState<CertificateTemplate | null>(null)
   const [form, setForm] = useState<FormState>({ ...defaultForm })
   const [saving, setSaving] = useState(false)
-
-  useEffect(() => {
-    if (currentUser !== null && !hasPermission(currentUser, PERMISSIONS.TEMPLATE_MANAGE)) {
-      router.replace('/dashboard')
-    }
-  }, [currentUser, router])
 
   const buildUrl = () => {
     const params = new URLSearchParams()
@@ -167,10 +158,6 @@ export default function CertificateTemplatesPage() {
 
   const templates = data ?? []
   const total = pagination?.total ?? 0
-
-  if (!currentUser || !hasPermission(currentUser, PERMISSIONS.TEMPLATE_MANAGE)) {
-    return null
-  }
 
   return (
     <div className="space-y-5 p-6">
@@ -299,5 +286,13 @@ export default function CertificateTemplatesPage() {
         </form>
       </Modal>
     </div>
+  )
+}
+
+export default function CertificateTemplatesPage() {
+  return (
+    <RequirePermission permission={PERMISSIONS.TEMPLATE_MANAGE}>
+      <CertificateTemplatesPageView />
+    </RequirePermission>
   )
 }

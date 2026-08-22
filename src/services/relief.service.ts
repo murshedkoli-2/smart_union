@@ -318,11 +318,12 @@ export async function addBeneficiary(
   const citizen = await Citizen.findById(citizenId).lean()
   if (!citizen) throw new NotFoundError('Citizen not found')
 
-  // Check duplicate: citizen cannot appear twice in same program
+  // Check duplicate: citizen cannot appear twice in same program.
+  // Removed beneficiaries are excluded by the soft-delete query hooks, so a
+  // citizen who was removed can be added back.
   const duplicate = await ReliefBeneficiary.findOne({
     program_id: new mongoose.Types.ObjectId(programId),
     citizen_id: new mongoose.Types.ObjectId(citizenId),
-    deleted: { $ne: true },
   }).lean()
   if (duplicate) {
     throw new ConflictError('This citizen is already a beneficiary in this program')
@@ -369,7 +370,7 @@ export async function removeBeneficiary(
     throw new BadRequestError('Cannot remove beneficiaries from a locked relief list')
   }
 
-  await ReliefBeneficiary.findByIdAndUpdate(beneficiaryId, { deleted: true })
+  await ReliefBeneficiary.findByIdAndUpdate(beneficiaryId, { deleted_at: new Date() })
 
   await createAuditLog({
     user_id: actor.sub,
@@ -400,15 +401,27 @@ export async function listBeneficiaries(
   if (ward_no) filter.ward_no = ward_no
 
   const skip = (page - 1) * limit
+
+  // withDeleted on purpose: this listing shows removed beneficiaries greyed
+  // out so an officer can see who was taken off a list and when. Everywhere
+  // else — duplicate checks, counts — removed rows stay hidden.
   const [beneficiaries, total] = await Promise.all([
     ReliefBeneficiary.find(filter)
+      .setOptions({ withDeleted: true })
       .populate('citizen_id', 'name_bn name_en mobile address holding_no')
       .sort({ createdAt: 1 })
       .skip(skip)
       .limit(limit)
       .lean(),
-    ReliefBeneficiary.countDocuments(filter),
+    ReliefBeneficiary.countDocuments(filter).setOptions({ withDeleted: true }),
   ])
 
-  return { beneficiaries, total, page, limit }
+  return {
+    // The UI renders an Active/Removed badge off `deleted`; keep that contract
+    // rather than leaking the timestamp field name into the client.
+    beneficiaries: beneficiaries.map((b) => ({ ...b, deleted: b.deleted_at != null })),
+    total,
+    page,
+    limit,
+  }
 }

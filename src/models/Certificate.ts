@@ -1,7 +1,9 @@
 import mongoose, { Schema, Document, Model } from 'mongoose'
+import { softDeletePlugin } from './plugins/soft-delete'
 import type { CertificateLanguage } from '@/constants/certificate-types'
 
-export type CertificateStatus = 'draft' | 'pending' | 'approved' | 'locked' | 'deleted'
+// 'deleted' is intentionally absent — deletion is deleted_at, not a status.
+export type CertificateStatus = 'draft' | 'pending' | 'approved' | 'locked'
 
 export interface ICertificate extends Document {
   certificate_no: string | null
@@ -17,6 +19,10 @@ export interface ICertificate extends Document {
   approved_by?: mongoose.Types.ObjectId
   approved_at?: Date
   locked_at?: Date
+  /** Set when soft-deleted; null on live records. See plugins/soft-delete. */
+  deleted_at?: Date | null
+  /** Unguessable public lookup key for /verify — see lib/utils/verification-token. */
+  verification_token?: string
   qr_code_url?: string
   pdf_url?: string
   fiscal_year: string
@@ -27,7 +33,9 @@ export interface ICertificate extends Document {
 
 const CertificateSchema = new Schema<ICertificate>(
   {
-    certificate_no: { type: String, required: true, unique: true },
+    // Uniqueness enforced by the partial index below, so a soft-deleted
+    // certificate releases its number without having the value rewritten.
+    certificate_no: { type: String, required: true },
     certificateNo: { type: String, default: null },
     referenceNo: { type: String, default: null },
     language: { type: String, enum: ['bn', 'en'], required: true },
@@ -42,18 +50,41 @@ const CertificateSchema = new Schema<ICertificate>(
     dynamic_data: { type: Schema.Types.Mixed, default: {} },
     status: {
       type: String,
-      enum: ['draft', 'pending', 'approved', 'locked', 'deleted'],
+      enum: ['draft', 'pending', 'approved', 'locked'],
       default: 'draft',
     },
     approved_by: { type: Schema.Types.ObjectId, ref: 'User', default: null },
     approved_at: { type: Date, default: null },
     locked_at: { type: Date, default: null },
+    // Drafts have no token until they are approved — see the partial index below.
+    verification_token: { type: String, default: null },
     qr_code_url: { type: String, default: null },
     pdf_url: { type: String, default: null },
     fiscal_year: { type: String, required: true },
     created_by: { type: Schema.Types.ObjectId, ref: 'User', required: true },
   },
   { timestamps: true },
+)
+
+CertificateSchema.plugin(softDeletePlugin)
+
+/**
+ * Unique among live certificates only. Replaces the plain unique indexes —
+ * existing databases must run `npm run migrate-soft-delete`.
+ */
+CertificateSchema.index(
+  { certificate_no: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { certificate_no: { $type: 'string' }, deleted_at: null },
+  },
+)
+CertificateSchema.index(
+  { verification_token: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { verification_token: { $type: 'string' }, deleted_at: null },
+  },
 )
 
 CertificateSchema.index({

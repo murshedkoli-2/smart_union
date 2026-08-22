@@ -15,6 +15,21 @@ const hindSiliguri = Hind_Siliguri({
   weight: ['400', '500', '600', '700'],
 })
 
+/**
+ * Every page renders per request.
+ *
+ * Required by the nonce-based CSP: a statically prerendered page is built once
+ * and served from cache, so the inline scripts baked into it cannot carry the
+ * nonce that this request's policy names — the browser would block Next's
+ * hydration script and the page would render blank. Verified: before this,
+ * static routes served 16 script tags with 0 nonce attributes while dynamic
+ * routes served 16 of 16.
+ *
+ * The cost is small here. Every page is a client component that fetches its
+ * data after hydration, so what was being cached was an empty shell.
+ */
+export const dynamic = 'force-dynamic'
+
 export const metadata: Metadata = {
   title: {
     default: 'Smart Union Parishad',

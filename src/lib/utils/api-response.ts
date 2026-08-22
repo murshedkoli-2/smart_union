@@ -1,6 +1,29 @@
 import { NextResponse } from 'next/server'
+import mongoose from 'mongoose'
 import { ZodError } from 'zod'
 import { AppError, ValidationError } from './errors'
+
+interface DuplicateKeyError {
+  code: number
+  keyPattern?: Record<string, unknown>
+}
+
+function isDuplicateKeyError(error: unknown): error is DuplicateKeyError {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code: unknown }).code === 11000
+  )
+}
+
+/** Names the conflicting field without echoing the value back to the caller. */
+function duplicateKeyMessage(error: DuplicateKeyError): string {
+  const field = Object.keys(error.keyPattern ?? {})[0]
+  return field
+    ? `A record with this ${field.replace(/_/g, ' ')} already exists`
+    : 'Resource already exists'
+}
 
 export interface ApiResponse<T = unknown> {
   success: boolean
@@ -83,6 +106,39 @@ export function errorResponse(error: unknown): NextResponse<ApiResponse> {
       body.errors = error.details
     }
     return NextResponse.json(body, { status: error.statusCode })
+  }
+
+  // Malformed ObjectId in a route param or filter.
+  // Mongoose throws CastError, which is a client mistake, not a server fault —
+  // without this it fell through to the 500 branch below.
+  if (error instanceof mongoose.Error.CastError) {
+    return NextResponse.json(
+      {
+        success: false,
+        message: error.path === '_id' ? 'Invalid ID format' : `Invalid value for '${error.path}'`,
+      },
+      { status: 400 },
+    )
+  }
+
+  // Schema-level validation that Zod did not catch (enum, required, min/max).
+  if (error instanceof mongoose.Error.ValidationError) {
+    const fieldErrors: Record<string, string[]> = {}
+    for (const [field, detail] of Object.entries(error.errors)) {
+      fieldErrors[field] = [detail.message]
+    }
+    return NextResponse.json(
+      { success: false, message: 'Validation failed', errors: fieldErrors },
+      { status: 422 },
+    )
+  }
+
+  // Unique index violation — a conflict, not a crash.
+  if (isDuplicateKeyError(error)) {
+    return NextResponse.json(
+      { success: false, message: duplicateKeyMessage(error) },
+      { status: 409 },
+    )
   }
 
   // Unknown errors — don't leak internals

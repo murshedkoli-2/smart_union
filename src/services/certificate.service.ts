@@ -12,8 +12,11 @@ import {
 } from '@/lib/utils/errors'
 import { generateCertificateNo, getCurrentFiscalYear } from '@/lib/utils/serial-generator'
 import { buildCertificateVerificationUrl } from '@/lib/utils/certificate-verification'
+import { generateVerificationToken } from '@/lib/utils/verification-token'
 import { normalizeCertificateTemplateBody } from '@/lib/utils/certificate-render'
+import { withTransaction } from '@/lib/db/transaction'
 import { createAuditLog } from './audit-log.service'
+import { collectPayment } from './payment.service'
 import type { JwtAccessPayload } from '@/types/auth.types'
 import type { CertificateLanguage, CertificateTypeCode } from '@/constants/certificate-types'
 
@@ -145,9 +148,14 @@ export async function listCertificates(
       ...certificate,
       status: certificate.status === 'locked' ? 'approved' : certificate.status,
       certificate_no: publicCertificateNo,
+      // Falls back to the token, never to the certificate number.
+      // A certificate approved before verification tokens existed has neither
+      // a stored URL nor a token until `npm run backfill-verification-tokens`
+      // has been run; it reports no QR rather than an enumerable one.
       qr_code_url:
-        isApproved && publicCertificateNo
-          ? certificate.qr_code_url || buildCertificateVerificationUrl(publicCertificateNo)
+        isApproved && certificate.verification_token
+          ? certificate.qr_code_url ||
+            buildCertificateVerificationUrl(certificate.verification_token)
           : null,
     }
   })
@@ -174,8 +182,9 @@ export async function getCertificateById(id: string, _actor: JwtAccessPayload) {
     status: certificate.status === 'locked' ? 'approved' : certificate.status,
     certificate_no: publicCertificateNo,
     qr_code_url:
-      isApproved && publicCertificateNo
-        ? certificate.qr_code_url || buildCertificateVerificationUrl(publicCertificateNo)
+      isApproved && certificate.verification_token
+        ? certificate.qr_code_url ||
+          buildCertificateVerificationUrl(certificate.verification_token)
         : null,
   }
 }
@@ -235,59 +244,130 @@ export async function updateCertificate(
 
 // ── Approve Certificate ───────────────────────────────────────────────────────
 
-export async function approveCertificate(id: string, actor: JwtAccessPayload) {
-  const certificate = await Certificate.findById(id)
+export interface ApproveCertificateOptions {
+  /** Collect the fee in cash as part of approval. */
+  collect_payment?: boolean
+  /** Overrides the template fee when present. */
+  amount?: number
+  note?: string
+}
+
+/**
+ * Approves a certificate, collecting the fee in the same atomic unit.
+ *
+ * This orchestration used to live in the route handler as three independent
+ * service calls — collect payment, attach payment_id, approve. A failure after
+ * the first one banked the citizen's money against a certificate that was
+ * never issued, and the operator had no way to tell from the data whether the
+ * fee had been taken. Payment, cashbook entry, payment link, approval and both
+ * audit records now commit together or not at all.
+ */
+export async function approveCertificate(
+  id: string,
+  actor: JwtAccessPayload,
+  options: ApproveCertificateOptions = {},
+) {
+  const certificate = await Certificate.findById(id).populate('template_id')
   if (!certificate) throw new NotFoundError('Certificate not found')
 
   if (certificate.status !== 'pending') {
     throw new BadRequestError('Certificate must be in pending status to approve')
   }
 
+  const template = certificate.template_id as unknown as { fee?: number } | null
+  const amount = Number(options.amount ?? template?.fee ?? 0)
+  const alreadyPaid = Boolean(certificate.payment_id)
+  const mustCollect = !alreadyPaid && amount > 0
+
+  if (mustCollect && options.collect_payment !== true) {
+    throw new BadRequestError('Cash payment must be collected before approval')
+  }
+
+  const citizenId = certificate.citizen_id
+  if (mustCollect && !citizenId) {
+    throw new BadRequestError('Citizen information is required for payment collection')
+  }
+
+  // Outside the transaction on purpose — see withTransaction. A rollback burns
+  // a certificate number rather than risking a duplicate.
   const year = new Date().getFullYear()
   const certNo = await generateCertificateNo(
     certificate.language as CertificateLanguage,
     certificate.certificate_type as CertificateTypeCode,
     year,
   )
+  const verificationToken = generateVerificationToken()
 
-  certificate.status = 'approved'
-  certificate.certificate_no = certNo
-  certificate.certificateNo = certNo
-  certificate.referenceNo = certNo
-  certificate.approved_by = new mongoose.Types.ObjectId(actor.sub)
-  certificate.approved_at = new Date()
-  certificate.qr_code_url = buildCertificateVerificationUrl(certNo)
+  return withTransaction(async (txn) => {
+    let payment: Awaited<ReturnType<typeof collectPayment>> | null = null
 
-  await certificate.save()
+    if (mustCollect) {
+      payment = await collectPayment(
+        {
+          payment_type: 'certificate',
+          source_type: certificate.language === 'bn' ? 'certificate_bn' : 'certificate_en',
+          reference_id: id,
+          amount,
+          paid_by_citizen: citizenId.toString(),
+          note: options.note ?? `Cash payment for certificate ${certNo}`,
+        },
+        actor,
+        txn,
+      )
+      certificate.payment_id = payment._id as mongoose.Types.ObjectId
+    }
 
-  await createAuditLog({
-    user_id: actor.sub,
-    user_role: actor.role,
-    action: 'certificate.approve',
-    target_model: 'Certificate',
-    target_id: certificate._id as mongoose.Types.ObjectId,
-    status: 'success',
+    certificate.status = 'approved'
+    certificate.certificate_no = certNo
+    certificate.certificateNo = certNo
+    certificate.referenceNo = certNo
+    certificate.approved_by = new mongoose.Types.ObjectId(actor.sub)
+    certificate.approved_at = new Date()
+
+    // The QR points at an unguessable token, not the sequential certificate number.
+    certificate.verification_token = verificationToken
+    certificate.qr_code_url = buildCertificateVerificationUrl(verificationToken)
+
+    await certificate.save(txn ? { session: txn } : {})
+
+    await createAuditLog(
+      {
+        user_id: actor.sub,
+        user_role: actor.role,
+        action: 'certificate.approve',
+        target_model: 'Certificate',
+        target_id: certificate._id as mongoose.Types.ObjectId,
+        status: 'success',
+      },
+      txn,
+    )
+
+    return {
+      certificate: certificate.toObject(),
+      payment: payment ?? certificate.payment_id ?? null,
+    }
   })
-
-  return certificate.toObject()
 }
 
 // ── Delete Certificate ────────────────────────────────────────────────────────
 
+/**
+ * Soft-deletes a certificate.
+ *
+ * Stamps deleted_at and nothing else. The certificate number is preserved as
+ * issued — it is the official record locator, and rewriting it to
+ * `BN-CIT-2026-0001_del_1719…` destroyed the audit trail for a document that
+ * may already be in a citizen's hands. The partial unique index releases the
+ * number for reuse; the query hooks hide the row from every read path,
+ * including public verification.
+ */
 export async function deleteCertificate(id: string, actor: JwtAccessPayload) {
   const certificate = await Certificate.findById(id)
   if (!certificate) throw new NotFoundError('Certificate not found')
 
   const before = certificate.toObject()
 
-  certificate.status = 'deleted' as any
-  certificate.certificate_no = `${certificate.certificate_no}_del_${Date.now()}`
-  if (certificate.referenceNo) {
-    certificate.referenceNo = `${certificate.referenceNo}_del_${Date.now()}`
-  }
-  if (certificate.certificateNo) {
-    certificate.certificateNo = `${certificate.certificateNo}_del_${Date.now()}`
-  }
+  certificate.deleted_at = new Date()
   await certificate.save()
 
   await createAuditLog({

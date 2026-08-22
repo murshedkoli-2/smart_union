@@ -12,10 +12,17 @@ export function getAppBaseUrl(): string {
   return 'http://localhost:3000'
 }
 
-export function buildCertificateVerificationPath(certificateNo: string): string {
-  return `/verify/${encodeURIComponent(certificateNo)}`
+/**
+ * Path a QR code points at.
+ *
+ * Takes the certificate's `verification_token`, never its `certificate_no`.
+ * Certificate numbers are sequential, so using one here would let anyone
+ * enumerate the register — see lib/utils/verification-token.
+ */
+export function buildCertificateVerificationPath(verificationToken: string): string {
+  return `/verify/${encodeURIComponent(verificationToken)}`
 }
 
-export function buildCertificateVerificationUrl(certificateNo: string): string {
-  return `${getAppBaseUrl()}${buildCertificateVerificationPath(certificateNo)}`
+export function buildCertificateVerificationUrl(verificationToken: string): string {
+  return `${getAppBaseUrl()}${buildCertificateVerificationPath(verificationToken)}`
 }

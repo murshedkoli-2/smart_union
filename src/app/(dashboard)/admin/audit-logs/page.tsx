@@ -1,10 +1,9 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState } from 'react'
 import { useApi } from '@/hooks/useApi'
-import { useUser, hasPermission } from '@/hooks/useUser'
 import { PERMISSIONS } from '@/constants/permissions'
+import RequirePermission from '@/components/auth/RequirePermission'
 import PageHeader from '@/components/ui/PageHeader'
 import DataTable, { Column } from '@/components/ui/DataTable'
 import Pagination from '@/components/ui/Pagination'
@@ -34,9 +33,7 @@ const ACTION_TYPES = [
   'login', 'logout', 'register', 'create', 'update', 'delete', 'approve', 'reject', 'lock', 'pay'
 ]
 
-export default function AuditLogsPage() {
-  const router = useRouter()
-  const currentUser = useUser()
+function AuditLogsPageView() {
   const [page, setPage] = useState(1)
   const [actionFilter, setActionFilter] = useState('')
   const [modelFilter, setModelFilter] = useState('')
@@ -44,17 +41,6 @@ export default function AuditLogsPage() {
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [selectedLog, setSelectedLog] = useState<AuditLog | null>(null)
-
-  // Guard: only those with AUDIT_VIEW can access this page
-  useEffect(() => {
-    if (currentUser !== null && !hasPermission(currentUser, PERMISSIONS.AUDIT_VIEW)) {
-      router.replace('/dashboard')
-    }
-  }, [currentUser, router])
-
-  if (!currentUser || !hasPermission(currentUser, PERMISSIONS.AUDIT_VIEW)) {
-    return null
-  }
 
   const buildUrl = () => {
     const p = new URLSearchParams()
@@ -384,5 +370,13 @@ export default function AuditLogsPage() {
         )}
       </Modal>
     </div>
+  )
+}
+
+export default function AuditLogsPage() {
+  return (
+    <RequirePermission permission={PERMISSIONS.AUDIT_VIEW}>
+      <AuditLogsPageView />
+    </RequirePermission>
   )
 }

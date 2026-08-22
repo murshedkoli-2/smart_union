@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { withDb } from '@/middleware/with-db'
 import { authenticate } from '@/middleware/authenticate'
-import { successResponse, errorResponse } from '@/lib/utils/api-response'
+import { successResponse } from '@/lib/utils/api-response'
 import * as UserService from '@/services/user.service'
 import type { AuthenticatedRequest, RouteContext } from '@/types/api.types'
 
@@ -14,6 +14,4 @@ const patchHandler = async (req: AuthenticatedRequest, _ctx: RouteContext): Prom
 
 export const PATCH = withDb(
   authenticate(patchHandler),
-) as (req: NextRequest, ctx: RouteContext) => Promise<NextResponse>
-
-export { errorResponse }
+)

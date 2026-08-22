@@ -72,13 +72,13 @@ const defaultForm = {
 
 export default function WarishPage() {
   const currentUser = useUser()
-  const { t, lang } = useLanguage()
+  const { lang } = useLanguage()
   const canApprove = isSuperAdmin(currentUser)
   const [page, setPage] = useState(1)
   const [statusFilter, setStatusFilter] = useState('')
   const [applicationTypeFilter, setApplicationTypeFilter] = useState<'warish' | 'family_certificate'>('warish')
   const [showCreate, setShowCreate] = useState(false)
-  const [createType, setCreateType] = useState<'warish' | 'family_certificate'>('warish')
+  const [, setCreateType] = useState<'warish' | 'family_certificate'>('warish')
   const [isPreview, setIsPreview] = useState(false)
   const [form, setForm] = useState({ ...defaultForm, heirs: [emptyHeir()], family_members: [emptyHeir()] })
   const [saving, setSaving] = useState(false)
@@ -131,9 +131,9 @@ export default function WarishPage() {
   const searchCitizens = async (query: string) => {
     if (query.length < 2) { setCitizenResults([]); return }
     try {
-      const res = await fetch(`/api/citizens?search=${encodeURIComponent(query)}&status=approved&limit=10`, {
-        headers: { Authorization: `Bearer ${sessionStorage.getItem('access_token')}` },
-      })
+      const res = await apiCall(
+        `/api/citizens?search=${encodeURIComponent(query)}&status=approved&limit=10`,
+      )
       if (res.ok) {
         const d = await res.json()
         setCitizenResults(d.data?.citizens ?? [])

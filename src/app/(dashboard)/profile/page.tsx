@@ -1,11 +1,12 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import toast from 'react-hot-toast'
 import { useRouter } from 'next/navigation'
 import { apiCall } from '@/lib/utils/api-client'
 import PageHeader from '@/components/ui/PageHeader'
-import { useLanguage } from '@/contexts/LanguageContext'
+import { useUser, USER_STORAGE_KEY, type AppUser } from '@/hooks/useUser'
+import { invalidateSessionValue } from '@/hooks/useSessionValue'
 
 interface ProfileForm {
   name: string
@@ -18,51 +19,42 @@ interface ProfileForm {
 
 export default function ProfilePage() {
   const router = useRouter()
-  const [form, setForm] = useState<ProfileForm>({
-    name: '',
-    mobile: '',
+  const user = useUser() as (AppUser & { mobile?: string }) | null
+
+  // Seeded from the store on first render rather than in an effect: the form
+  // is then editable state that must NOT track the store afterwards, or typing
+  // would be overwritten on every external change.
+  const [form, setForm] = useState<ProfileForm | null>(null)
+
+  const activeForm: ProfileForm = form ?? {
+    name: user?.name ?? '',
+    mobile: user?.mobile ?? '',
     current_password: '',
     new_password: '',
-    role: '',
-    email: '',
-  })
-  
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
+    role: user?.role ?? '',
+    email: user?.email ?? '',
+  }
 
-  useEffect(() => {
-    const stored = sessionStorage.getItem('user')
-    if (stored) {
-      const user = JSON.parse(stored)
-      setForm({
-        name: user.name || '',
-        mobile: user.mobile || '',
-        current_password: '',
-        new_password: '',
-        role: user.role || '',
-        email: user.email || '',
-      })
-    }
-    setLoading(false)
-  }, [])
+  const loading = user === null && form === null
+  const [saving, setSaving] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setSaving(true)
 
     const payload: Partial<ProfileForm> = {
-      name: form.name,
-      mobile: form.mobile,
+      name: activeForm.name,
+      mobile: activeForm.mobile,
     }
 
-    if (form.new_password) {
-      if (!form.current_password) {
+    if (activeForm.new_password) {
+      if (!activeForm.current_password) {
         toast.error('Current password is required to set a new password')
         setSaving(false)
         return
       }
-      payload.new_password = form.new_password
-      payload.current_password = form.current_password
+      payload.new_password = activeForm.new_password
+      payload.current_password = activeForm.current_password
     }
 
     const res = await apiCall('/api/profile', {
@@ -75,20 +67,26 @@ export default function ProfilePage() {
       const { data } = await res.json()
       toast.success('Profile updated successfully')
       
-      // Update session storage cleanly
-      const stored = sessionStorage.getItem('user')
+      // Update the cached display details, then notify readers so the topbar
+      // and sidebar pick up the new name without a reload.
+      const stored = sessionStorage.getItem(USER_STORAGE_KEY)
       if (stored) {
-        const user = JSON.parse(stored)
-        const updatedUser = { ...user, name: data.name, mobile: data.mobile }
-        sessionStorage.setItem('user', JSON.stringify(updatedUser))
+        const cached = JSON.parse(stored)
+        sessionStorage.setItem(
+          USER_STORAGE_KEY,
+          JSON.stringify({ ...cached, name: data.name, mobile: data.mobile }),
+        )
+        invalidateSessionValue(USER_STORAGE_KEY)
       }
-      
+
       // Reset passwords in form
-      setForm(prev => ({
-        ...prev,
+      setForm({
+        ...activeForm,
+        name: data.name,
+        mobile: data.mobile ?? '',
         current_password: '',
         new_password: '',
-      }))
+      })
     } else {
       const d = await res.json()
       if (d.errors) {
@@ -127,7 +125,7 @@ export default function ProfilePage() {
                   <label className="mb-1.5 block text-sm font-medium text-gray-700">Email Address</label>
                   <input
                     type="email"
-                    value={form.email}
+                    value={activeForm.email}
                     disabled
                     className="w-full cursor-not-allowed rounded-lg border border-gray-200 bg-gray-50 px-4 py-2 text-sm text-gray-500"
                   />
@@ -137,7 +135,7 @@ export default function ProfilePage() {
                   <label className="mb-1.5 block text-sm font-medium text-gray-700">Role</label>
                   <input
                     type="text"
-                    value={form.role.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase())}
+                    value={activeForm.role.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase())}
                     disabled
                     className="w-full cursor-not-allowed rounded-lg border border-gray-200 bg-gray-50 px-4 py-2 text-sm text-gray-500"
                   />
@@ -153,8 +151,8 @@ export default function ProfilePage() {
                   <input
                     type="text"
                     required
-                    value={form.name}
-                    onChange={(e) => setForm({ ...form, name: e.target.value })}
+                    value={activeForm.name}
+                    onChange={(e) => setForm({ ...activeForm, name: e.target.value })}
                     className="w-full rounded-lg border border-gray-200 px-4 py-2 text-sm focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-500"
                   />
                 </div>
@@ -162,8 +160,8 @@ export default function ProfilePage() {
                   <label className="mb-1.5 block text-sm font-medium text-gray-700">Mobile Number</label>
                   <input
                     type="text"
-                    value={form.mobile}
-                    onChange={(e) => setForm({ ...form, mobile: e.target.value })}
+                    value={activeForm.mobile}
+                    onChange={(e) => setForm({ ...activeForm, mobile: e.target.value })}
                     placeholder="e.g. 01700000000"
                     className="w-full rounded-lg border border-gray-200 px-4 py-2 text-sm focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-500"
                   />
@@ -180,8 +178,8 @@ export default function ProfilePage() {
                     <label className="mb-1.5 block text-sm font-medium text-gray-700">Current Password</label>
                     <input
                       type="password"
-                      value={form.current_password}
-                      onChange={(e) => setForm({ ...form, current_password: e.target.value })}
+                      value={activeForm.current_password}
+                      onChange={(e) => setForm({ ...activeForm, current_password: e.target.value })}
                       placeholder="Enter current password"
                       className="w-full rounded-lg border border-gray-200 px-4 py-2 text-sm focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-500"
                     />
@@ -190,8 +188,8 @@ export default function ProfilePage() {
                     <label className="mb-1.5 block text-sm font-medium text-gray-700">New Password</label>
                     <input
                       type="password"
-                      value={form.new_password}
-                      onChange={(e) => setForm({ ...form, new_password: e.target.value })}
+                      value={activeForm.new_password}
+                      onChange={(e) => setForm({ ...activeForm, new_password: e.target.value })}
                       placeholder="At least 8 characters"
                       className="w-full rounded-lg border border-gray-200 px-4 py-2 text-sm focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-500"
                     />

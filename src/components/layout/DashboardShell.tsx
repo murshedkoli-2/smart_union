@@ -4,23 +4,13 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Sidebar from './Sidebar'
 import NotificationBell from './NotificationBell'
-import { refreshAccessToken } from '@/lib/utils/api-client'
+import { refreshSession, apiCall } from '@/lib/utils/api-client'
 import { useLanguage } from '@/contexts/LanguageContext'
 
 interface User {
   name: string
   role: string
   email: string
-}
-
-/** Decode the exp claim from a JWT without verifying the signature. */
-function getTokenExpiry(token: string): number | null {
-  try {
-    const payload = JSON.parse(atob(token.split('.')[1]))
-    return typeof payload.exp === 'number' ? payload.exp * 1000 : null
-  } catch {
-    return null
-  }
 }
 
 // Background refresh interval — refresh every 13 minutes so the 15-minute
@@ -38,21 +28,19 @@ export default function DashboardShell({ children }: { children: React.ReactNode
   const handleLogout = async () => {
     setLoggingOut(true)
     try {
-      const token = sessionStorage.getItem('access_token')
-      await fetch('/api/auth/logout', {
-        method: 'POST',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        credentials: 'include',
-      })
+      // Server clears both httpOnly cookies; the client cannot.
+      await apiCall('/api/auth/logout', { method: 'POST' })
     } catch {}
     sessionStorage.clear()
-    document.cookie = 'access_token=; max-age=0; path=/'
     router.push('/login')
   }
 
-  // On mount: restore user and proactively refresh if the token is expired
-  // or about to expire (within 3 minutes). This covers page navigations where
-  // the middleware let an expired cookie through.
+  // On mount: restore the cached user and renew the session.
+  //
+  // The access token is httpOnly now, so its expiry cannot be inspected here.
+  // Instead refresh unconditionally on mount — one cheap request that
+  // guarantees a full 15-minute window, and covers the case where the page
+  // middleware let an expired cookie through.
   useEffect(() => {
     const init = async () => {
       const stored = sessionStorage.getItem('user')
@@ -61,21 +49,12 @@ export default function DashboardShell({ children }: { children: React.ReactNode
         return
       }
 
-      const token = sessionStorage.getItem('access_token')
-      if (token) {
-        const expiry = getTokenExpiry(token)
-        const expiresInMs = expiry !== null ? expiry - Date.now() : 0
-        if (expiresInMs < 3 * 60 * 1000) {
-          // Token is expired or expiring in < 3 min — refresh now
-          const newToken = await refreshAccessToken()
-          if (!newToken) {
-            // Refresh token also expired — force re-login
-            sessionStorage.clear()
-            document.cookie = 'access_token=; max-age=0; path=/'
-            router.push('/login')
-            return
-          }
-        }
+      const refreshed = await refreshSession()
+      if (!refreshed) {
+        // Refresh token expired or revoked — force re-login.
+        sessionStorage.clear()
+        router.push('/login')
+        return
       }
 
       try {
@@ -94,11 +73,10 @@ export default function DashboardShell({ children }: { children: React.ReactNode
     if (!user) return
 
     const interval = setInterval(async () => {
-      const newToken = await refreshAccessToken()
-      if (!newToken) {
+      const refreshed = await refreshSession()
+      if (!refreshed) {
         // Refresh token has expired — redirect to login
         sessionStorage.clear()
-        document.cookie = 'access_token=; max-age=0; path=/'
         router.push('/login')
       }
     }, REFRESH_INTERVAL_MS)

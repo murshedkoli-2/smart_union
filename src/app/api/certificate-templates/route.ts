@@ -1,8 +1,9 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { withDb } from '@/middleware/with-db'
 import { authenticate } from '@/middleware/authenticate'
 import { authorize } from '@/middleware/authorize'
-import { createdResponse, paginatedResponse, errorResponse } from '@/lib/utils/api-response'
+import { createdResponse, paginatedResponse } from '@/lib/utils/api-response'
+import { parsePagination } from '@/lib/utils/pagination'
 import * as CertificateService from '@/services/certificate.service'
 import type { AuthenticatedRequest, RouteContext } from '@/types/api.types'
 
@@ -15,8 +16,7 @@ const getHandler = async (req: AuthenticatedRequest, _ctx: RouteContext): Promis
     template_type: searchParams.get('template_type') ?? undefined,
     certificate_category: searchParams.get('certificate_category') ?? undefined,
     is_active: isActiveParam !== null ? isActiveParam === 'true' : undefined,
-    page: Number(searchParams.get('page') ?? 1),
-    limit: Number(searchParams.get('limit') ?? 20),
+    ...parsePagination(searchParams),
   }
   const result = await CertificateService.listTemplates(query, req.user)
   return paginatedResponse(result.templates, result.total, result.page, result.limit)
@@ -31,10 +31,8 @@ const postHandler = async (req: AuthenticatedRequest, _ctx: RouteContext): Promi
 
 export const GET = withDb(
   authenticate(authorize(['secretary', 'entrepreneur'])(getHandler)),
-) as (req: NextRequest, ctx: RouteContext) => Promise<NextResponse>
+)
 
 export const POST = withDb(
   authenticate(authorize(['secretary', 'entrepreneur'], 'template.manage')(postHandler)),
-) as (req: NextRequest, ctx: RouteContext) => Promise<NextResponse>
-
-export { errorResponse }
+)

@@ -1,6 +1,8 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useSessionValue } from './useSessionValue'
+
+export const USER_STORAGE_KEY = 'user'
 
 export interface AppUser {
   name: string
@@ -11,24 +13,15 @@ export interface AppUser {
 }
 
 /**
- * Returns the currently logged-in user from sessionStorage.
- * Returns null on the server or before the effect runs (hydration safe).
+ * Returns the currently logged-in user's display details from sessionStorage.
+ * Returns null on the server (hydration safe) and when signed out.
+ *
+ * This is UI state only — name, role, permissions for showing and hiding
+ * controls. It is not an authorization decision: the server re-checks role and
+ * permissions on every request from the signed JWT.
  */
 export function useUser(): AppUser | null {
-  const [user, setUser] = useState<AppUser | null>(null)
-
-  useEffect(() => {
-    const stored = sessionStorage.getItem('user')
-    if (stored) {
-      try {
-        setUser(JSON.parse(stored))
-      } catch {
-        // ignore malformed JSON
-      }
-    }
-  }, [])
-
-  return user
+  return useSessionValue<AppUser>(USER_STORAGE_KEY)
 }
 
 export const isSuperAdmin = (user: AppUser | null): boolean =>

@@ -1,8 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { withDb } from '@/middleware/with-db'
 import { authenticate } from '@/middleware/authenticate'
 import { authorize } from '@/middleware/authorize'
-import { successResponse, errorResponse } from '@/lib/utils/api-response'
+import { successResponse } from '@/lib/utils/api-response'
 import * as WarishService from '@/services/warish.service'
 import type { AuthenticatedRequest, RouteContext } from '@/types/api.types'
 
@@ -23,10 +23,8 @@ const patchHandler = async (req: AuthenticatedRequest, ctx: RouteContext): Promi
 
 export const GET = withDb(
   authenticate(authorize(['secretary', 'entrepreneur'], 'warish.view')(getHandler)),
-) as (req: NextRequest, ctx: RouteContext) => Promise<NextResponse>
+)
 
 export const PATCH = withDb(
   authenticate(authorize(['secretary', 'entrepreneur'], 'warish.create')(patchHandler)),
-) as (req: NextRequest, ctx: RouteContext) => Promise<NextResponse>
-
-export { errorResponse }
+)

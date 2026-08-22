@@ -1,4 +1,5 @@
 import mongoose, { Schema, Document, Model } from 'mongoose'
+import { softDeletePlugin } from './plugins/soft-delete'
 
 export interface IReliefBeneficiary extends Document {
   relief_list_id: mongoose.Types.ObjectId
@@ -8,7 +9,8 @@ export interface IReliefBeneficiary extends Document {
   allocation_amount?: number
   notes?: string
   added_by: mongoose.Types.ObjectId
-  deleted?: boolean
+  /** Set when soft-deleted; null on live records. See plugins/soft-delete. */
+  deleted_at?: Date | null
   createdAt: Date
   updatedAt: Date
 }
@@ -22,20 +24,33 @@ const ReliefBeneficiarySchema = new Schema<IReliefBeneficiary>(
     allocation_amount: { type: Number, default: null, min: 0 },
     notes: { type: String, default: null, trim: true },
     added_by: { type: Schema.Types.ObjectId, ref: 'User', required: true },
-    deleted: { type: Boolean, default: false },
   },
   { timestamps: true },
 )
 
-// CRITICAL: No duplicate citizen per list
+// Third soft-delete pattern in the codebase (a `deleted: boolean`) replaced by
+// the shared one, so removal behaves the same everywhere.
+ReliefBeneficiarySchema.plugin(softDeletePlugin)
+
+/**
+ * CRITICAL: no duplicate citizen per list, and none per program across lists.
+ *
+ * Partial on `deleted_at: null` because these were previously plain unique
+ * indexes that counted removed rows. The service excluded removed rows from
+ * its own duplicate check but the index did not, so removing a beneficiary and
+ * adding them back passed validation and then failed with E11000 — the citizen
+ * was locked out of that programme permanently, with a raw duplicate-key error
+ * as the only symptom.
+ *
+ * Existing databases must run `npm run migrate-soft-delete`.
+ */
 ReliefBeneficiarySchema.index(
   { relief_list_id: 1, citizen_id: 1 },
-  { unique: true },
+  { unique: true, partialFilterExpression: { deleted_at: null } },
 )
-// CRITICAL: No duplicate citizen per program across all lists
 ReliefBeneficiarySchema.index(
   { program_id: 1, citizen_id: 1 },
-  { unique: true },
+  { unique: true, partialFilterExpression: { deleted_at: null } },
 )
 ReliefBeneficiarySchema.index({ citizen_id: 1 })
 ReliefBeneficiarySchema.index({ ward_no: 1 })

@@ -2,20 +2,41 @@
 
 import { useLanguage } from '@/contexts/LanguageContext'
 
-export interface Column {
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/**
+ * A table row.
+ *
+ * `any` here is deliberate and scoped to this file. DataTable is intentionally
+ * schema-agnostic — it renders whatever list it is handed — so at this boundary
+ * the cell value genuinely has no static type. Typing it `unknown` instead
+ * pushes a cast into all ~145 render callbacks across 13 pages, and those casts
+ * are unchecked, so nothing is actually verified: it trades real noise for
+ * imaginary safety.
+ *
+ * Callers that want real checking pass a row type: `Column<Citizen>[]` types
+ * `row` exactly, and that is the direction new code should go.
+ */
+export type Row = Record<string, any>
+
+export interface Column<T = Row> {
   key: string
   label: string
-  render?: (value: any, row: Record<string, any>) => React.ReactNode
+  render?: (value: any, row: T) => React.ReactNode
 }
 
-interface DataTableProps {
-  columns: Column[]
-  data: Record<string, any>[]
+interface DataTableProps<T = Row> {
+  columns: Column<T>[]
+  data: T[]
   loading: boolean
   emptyMessage?: string
 }
 
-export default function DataTable({ columns, data, loading, emptyMessage }: DataTableProps) {
+export default function DataTable<T = Row>({
+  columns,
+  data,
+  loading,
+  emptyMessage,
+}: DataTableProps<T>) {
   const { t } = useLanguage()
   const empty = emptyMessage ?? t('noData')
 
@@ -52,15 +73,21 @@ export default function DataTable({ columns, data, loading, emptyMessage }: Data
               </td>
             </tr>
           ) : (
-            data.map((row, i) => (
-              <tr key={row._id ?? i} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                {columns.map((col) => (
-                  <td key={col.key} className="px-4 py-3 whitespace-nowrap text-gray-700">
-                    {col.render ? col.render(row[col.key], row) : (row[col.key] ?? '—')}
-                  </td>
-                ))}
-              </tr>
-            ))
+            data.map((row, i) => {
+              // T is unconstrained so callers can pass their own interfaces
+              // (which lack an index signature). Column lookup is by string
+              // key, so indexing happens through Row here.
+              const cells = row as Row
+              return (
+                <tr key={cells._id ?? i} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                  {columns.map((col) => (
+                    <td key={col.key} className="px-4 py-3 whitespace-nowrap text-gray-700">
+                      {col.render ? col.render(cells[col.key], row) : (cells[col.key] ?? '—')}
+                    </td>
+                  ))}
+                </tr>
+              )
+            })
           )}
         </tbody>
       </table>

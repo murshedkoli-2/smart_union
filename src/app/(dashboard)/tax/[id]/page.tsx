@@ -4,6 +4,7 @@ import { use, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useApi } from '@/hooks/useApi'
 import { apiCall } from '@/lib/utils/api-client'
+import { downloadHtmlAsPdf } from '@/lib/utils/html-to-pdf'
 import { generateTaxReceiptHtml } from '@/lib/utils/tax-receipt-render'
 import PageHeader from '@/components/ui/PageHeader'
 import StatusBadge from '@/components/ui/StatusBadge'
@@ -62,49 +63,20 @@ export default function TaxDetailPage({ params }: { params: Promise<{ id: string
     setDownloading(true)
     setPdfError('')
 
-    const container = document.createElement('div')
-    container.style.cssText = 'position:fixed;left:-9999px;top:0;width:794px;background:#ffffff;'
-    document.body.appendChild(container)
-
     try {
       const res = await apiCall(`/api/payments/${tax.payment_id._id}/tax-receipt`)
       if (!res.ok) throw new Error('Failed to fetch receipt data')
       const json = await res.json()
       const receiptData = json.data ?? json
 
-      const html = generateTaxReceiptHtml(receiptData)
-      container.innerHTML = html
-
-      await new Promise((r) => setTimeout(r, 700))
-
-      const [{ default: html2canvas }, { default: jsPDF }] = await Promise.all([
-        import('html2canvas'),
-        import('jspdf'),
-      ])
-
-      const target = (container.querySelector('.receipt-container') as HTMLElement | null) ?? container
-
-      const canvas = await html2canvas(target, {
-        scale: 2,
-        useCORS: true,
-        allowTaint: true,
-        width: 794,
-        windowWidth: 794,
-        backgroundColor: '#ffffff',
-        logging: false,
-      })
-
-      const imgData = canvas.toDataURL('image/jpeg', 0.95)
-      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
-      const pw = pdf.internal.pageSize.getWidth()
-      const ph = pdf.internal.pageSize.getHeight()
-      const rh = pw * (canvas.height / canvas.width)
-      pdf.addImage(imgData, 'JPEG', 0, 0, pw, rh <= ph ? rh : ph)
-      pdf.save(`tax-receipt-${tax.payment_id.receipt_no}.pdf`)
-    } catch (err) {
+      await downloadHtmlAsPdf(
+        generateTaxReceiptHtml(receiptData),
+        `tax-receipt-${tax.payment_id.receipt_no}.pdf`,
+        { selector: '.receipt-container', settleMs: 700, quality: 0.95 },
+      )
+    } catch {
       setPdfError('Failed to generate PDF. Please try again.')
     } finally {
-      document.body.removeChild(container)
       setDownloading(false)
     }
   }

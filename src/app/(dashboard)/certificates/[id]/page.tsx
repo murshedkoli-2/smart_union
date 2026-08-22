@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import toast from 'react-hot-toast'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import QRCode from 'qrcode'
@@ -9,9 +9,9 @@ import Modal from '@/components/ui/Modal'
 import StatusBadge from '@/components/ui/StatusBadge'
 import { useApi } from '@/hooks/useApi'
 import { apiCall } from '@/lib/utils/api-client'
+import { downloadHtmlAsPdf } from '@/lib/utils/html-to-pdf'
 import { useUser, isSuperAdmin } from '@/hooks/useUser'
 import { renderCertificateTemplate, renderOfficialCertificateLayout, type CitizenInfo } from '@/lib/utils/certificate-render'
-import { buildCertificateVerificationUrl } from '@/lib/utils/certificate-verification'
 import { CERTIFICATE_TYPE_LABELS } from '@/constants/certificate-types'
 import { generateFamilyCertificateBnHtml, generateFamilyCertificateEnHtml, type FamilyCertificateData } from '@/lib/utils/family-certificate-render'
 import { generateWarishCertificateBnHtml, generateWarishCertificateEnHtml, type WarishCertificateData } from '@/lib/utils/warish-certificate-render'
@@ -228,8 +228,10 @@ export default function CertificateDetailPage() {
   }
 
   const verificationUrl = useMemo(() => {
-    if (!cert || effectiveStatus !== 'approved' || !cert.certificate_no) return ''
-    return cert.qr_code_url || buildCertificateVerificationUrl(cert.certificate_no)
+    if (!cert || effectiveStatus !== 'approved') return ''
+    // Built server-side from the certificate's verification token — the client
+    // holds no token, so there is nothing to fall back to.
+    return cert.qr_code_url || ''
   }, [cert, effectiveStatus])
 
   useEffect(() => {
@@ -459,55 +461,43 @@ export default function CertificateDetailPage() {
       return
     }
 
-    const container = document.createElement('div')
-    container.style.cssText = 'position:fixed; left:-9999px; top:0; width:794px; margin:0; padding:0; background:#fff;'
-    container.innerHTML = renderedCertificateHtml
-    document.body.appendChild(container)
-
     try {
-      const [{ default: html2canvas }, { default: jsPDF }] = await Promise.all([
-        import('html2canvas'),
-        import('jspdf'),
-      ])
-
-      // Wait for fonts and images inside the injected HTML to load
-      await new Promise(r => setTimeout(r, 700))
-
-      // Target the .page div — firstElementChild may be a <style> tag from the full HTML doc
-      const target = (container.querySelector('.page') as HTMLElement | null) ?? container
-
-      const canvas = await html2canvas(target, {
-        scale: 2,
-        useCORS: true,
-        allowTaint: true,
-        width: 794,
-        windowWidth: 794,
-        backgroundColor: '#ffffff',
-        logging: false,
-      })
-
-      const imgData = canvas.toDataURL('image/jpeg', 0.95)
-      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
-      const pw = pdf.internal.pageSize.getWidth()
-      const ph = pdf.internal.pageSize.getHeight()
-      const rh = pw * (canvas.height / canvas.width)
-      pdf.addImage(imgData, 'JPEG', 0, 0, pw, rh <= ph ? rh : ph)
-
-      pdf.save(`${cert.certificate_no || `certificate-${cert._id}`}.pdf`)
+      await downloadHtmlAsPdf(
+        renderedCertificateHtml,
+        `${cert.certificate_no || `certificate-${cert._id}`}.pdf`,
+        {
+          // Target the .page div — the first child can be a <style> tag,
+          // because the certificate templates render a full HTML document.
+          selector: '.page',
+          settleMs: 700,
+          quality: 0.95,
+          containerStyle: 'margin:0; padding:0;',
+        },
+      )
     } catch {
       toast.error('Failed to generate PDF. Please try again.')
-    } finally {
-      document.body.removeChild(container)
     }
   }
 
-  // Auto-download if ?download=1 is present
+  // Always points at the latest handleDownloadPdf without making it a
+  // dependency. Listing the function directly would re-run the effect on every
+  // render (it is re-created each time); omitting it left the dependency array
+  // dishonest and the closure able to go stale.
+  const downloadPdfRef = useRef(handleDownloadPdf)
+  downloadPdfRef.current = handleDownloadPdf
+
+  // Auto-download if ?download=1 is present. The ref guard makes this fire at
+  // most once — the effect re-runs as cert/html/loading settle, and without it
+  // a slow render could start two PDF generations.
+  const autoDownloadStarted = useRef(false)
+
   useEffect(() => {
+    if (autoDownloadStarted.current) return
     if (searchParams.get('download') === '1' && cert && renderedCertificateHtml && !loading) {
-      handleDownloadPdf()
+      autoDownloadStarted.current = true
+      downloadPdfRef.current()
       // Remove query param without refresh
-      const newPath = window.location.pathname
-      window.history.replaceState({}, '', newPath)
+      window.history.replaceState({}, '', window.location.pathname)
     }
   }, [cert, renderedCertificateHtml, loading, searchParams])
 

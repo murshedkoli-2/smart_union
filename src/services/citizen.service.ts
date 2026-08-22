@@ -1,6 +1,7 @@
 import mongoose from 'mongoose'
 import Citizen from '@/models/Citizen'
 import { CreateCitizenSchema } from '@/lib/utils/validators'
+import { escapeRegex } from '@/lib/utils/mongo-query'
 import {
   NotFoundError,
   ValidationError,
@@ -58,6 +59,37 @@ export async function createCitizen(dto: unknown, actor: JwtAccessPayload) {
 
 // ── List Citizens ─────────────────────────────────────────────────────────────
 
+/**
+ * Builds an index-usable filter for the citizen search box.
+ *
+ * The old filter was an unanchored `$regex` with `$options: 'i'` across four
+ * fields, which forces a full collection scan on every keystroke — MongoDB
+ * cannot use an index for a case-insensitive or unanchored pattern.
+ *
+ * Two branches replace it, split on what the operator actually typed:
+ *
+ *  - Digits (a mobile number or NID) become an anchored prefix match. Case
+ *    folding is meaningless for digits, so dropping `'i'` lets the mobile and
+ *    nid_no indexes serve the query.
+ *  - Anything else goes to the `citizen_name_text` text index on the two name
+ *    fields.
+ *
+ * Input is still escaped in the regex branch: it reaches a regex engine, so
+ * metacharacters would otherwise let a caller match records they never named
+ * and stall the query thread (ReDoS).
+ */
+function buildCitizenSearchFilter(search: string | undefined): Record<string, unknown> {
+  const term = search?.trim()
+  if (!term) return {}
+
+  if (/^\d+$/.test(term)) {
+    const prefix = { $regex: `^${escapeRegex(term)}` }
+    return { $or: [{ mobile: prefix }, { nid_no: prefix }] }
+  }
+
+  return { $text: { $search: term } }
+}
+
 export async function listCitizens(
   query: {
     ward_no?: number
@@ -73,14 +105,7 @@ export async function listCitizens(
   const filter: Record<string, unknown> = {}
   if (ward_no) filter['address.ward_no'] = ward_no
   if (status) filter.status = status
-  if (search) {
-    filter.$or = [
-      { name_bn: { $regex: search, $options: 'i' } },
-      { name_en: { $regex: search, $options: 'i' } },
-      { mobile: { $regex: search, $options: 'i' } },
-      { nid_no: { $regex: search, $options: 'i' } },
-    ]
-  }
+  Object.assign(filter, buildCitizenSearchFilter(search))
 
   const skip = (page - 1) * limit
   const [citizens, total] = await Promise.all([
@@ -233,22 +258,21 @@ export async function rejectCitizen(
 
 // ── Delete Citizen ────────────────────────────────────────────────────────────
 
+/**
+ * Soft-deletes a citizen.
+ *
+ * Stamps deleted_at and nothing else. The record keeps its real NID, birth
+ * certificate number and holding number — the partial unique indexes exclude
+ * deleted rows, so those identifiers are free for reuse without the values
+ * being rewritten. Query hooks hide the record from every read path.
+ */
 export async function deleteCitizen(id: string, actor: JwtAccessPayload) {
   const citizen = await Citizen.findById(id)
   if (!citizen) throw new NotFoundError('Citizen not found')
 
   const before = citizen.toObject()
 
-  citizen.status = 'deleted' as any
-  if (citizen.nid_no) {
-    citizen.nid_no = `${citizen.nid_no}_del_${Date.now()}`
-  }
-  if (citizen.birth_cert_no) {
-    citizen.birth_cert_no = `${citizen.birth_cert_no}_del_${Date.now()}`
-  }
-  if (citizen.holding_no) {
-    citizen.holding_no = `${citizen.holding_no}_del_${Date.now()}`
-  }
+  citizen.deleted_at = new Date()
   await citizen.save()
 
   await createAuditLog({
@@ -257,7 +281,7 @@ export async function deleteCitizen(id: string, actor: JwtAccessPayload) {
     action: 'citizen.delete',
     target_model: 'Citizen',
     target_id: new mongoose.Types.ObjectId(id),
-    changes: { before, after: null },
+    changes: { before, after: { deleted_at: citizen.deleted_at } },
     status: 'success',
   })
 }

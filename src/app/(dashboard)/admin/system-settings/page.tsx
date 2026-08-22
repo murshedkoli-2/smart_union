@@ -1,14 +1,13 @@
 'use client'
 
 import Image from 'next/image'
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import toast from 'react-hot-toast'
-import { useRouter } from 'next/navigation'
 import PageHeader from '@/components/ui/PageHeader'
 import { useApi } from '@/hooks/useApi'
 import { apiCall } from '@/lib/utils/api-client'
-import { useUser, hasPermission } from '@/hooks/useUser'
 import { PERMISSIONS } from '@/constants/permissions'
+import RequirePermission from '@/components/auth/RequirePermission'
 
 interface UnionMember {
   name_bn: string
@@ -74,25 +73,12 @@ function DetailRow({ label, value }: { label: string; value: string }) {
   )
 }
 
-export default function SystemSettingsPage() {
-  const router = useRouter()
-  const currentUser = useUser()
+function SystemSettingsPageView() {
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const { data, loading, error, refetch } = useApi<SystemSettings>('/api/system-settings')
   const [form, setForm] = useState<SystemSettings>(defaultSettings)
   const [isEditing, setIsEditing] = useState(false)
   const [saving, setSaving] = useState(false)
-
-  // Guard: only those with SETTINGS_MANAGE can access this page
-  useEffect(() => {
-    if (currentUser !== null && !hasPermission(currentUser, PERMISSIONS.SETTINGS_MANAGE)) {
-      router.replace('/dashboard')
-    }
-  }, [currentUser, router])
-
-  if (!currentUser || !hasPermission(currentUser, PERMISSIONS.SETTINGS_MANAGE)) {
-    return null
-  }
 
   const updateField = <K extends keyof SystemSettings>(key: K, value: SystemSettings[K]) => {
     setForm((current) => ({
@@ -443,3 +429,11 @@ export default function SystemSettingsPage() {
 }
 
 
+
+export default function SystemSettingsPage() {
+  return (
+    <RequirePermission permission={PERMISSIONS.SETTINGS_MANAGE}>
+      <SystemSettingsPageView />
+    </RequirePermission>
+  )
+}

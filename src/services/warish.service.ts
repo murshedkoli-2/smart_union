@@ -11,6 +11,8 @@ import Citizen from '@/models/Citizen'
 import Certificate from '@/models/Certificate'
 import { getCurrentFiscalYear, generateCertificateNo } from '@/lib/utils/serial-generator'
 import { buildCertificateVerificationUrl } from '@/lib/utils/certificate-verification'
+import { generateVerificationToken } from '@/lib/utils/verification-token'
+import { withTransaction } from '@/lib/db/transaction'
 import {
   NotFoundError,
   ValidationError,
@@ -290,39 +292,56 @@ export async function payWarish(id: string, actor: JwtAccessPayload) {
   const paymentSource = getPaymentSource(application.application_type)
   const fiscalYear = getCurrentFiscalYear()
 
-  const payment = await Payment.create({
-    receipt_no: receiptNo,
-    payment_type: 'certificate',
-    source_type: paymentSource,
-    reference_id: application._id,
-    amount: 100,
-    payment_method: 'cash',
-    paid_by_citizen: citizen._id as mongoose.Types.ObjectId,
-    collected_by: new mongoose.Types.ObjectId(actor.sub),
-  })
+  // Payment, ledger entry, the application link and the audit record are one
+  // atomic unit — a receipt with no cashbook line unbalances the books.
+  await withTransaction(async (txn) => {
+    const [payment] = await Payment.create(
+      [
+        {
+          receipt_no: receiptNo,
+          payment_type: 'certificate',
+          source_type: paymentSource,
+          reference_id: application._id,
+          amount: 100,
+          payment_method: 'cash',
+          paid_by_citizen: citizen._id as mongoose.Types.ObjectId,
+          collected_by: new mongoose.Types.ObjectId(actor.sub),
+        },
+      ],
+      txn ? { session: txn } : {},
+    )
 
-  // Record in cashbook as certificate income
-  await Cashbook.create({
-    entry_type: 'income',
-    source: 'certificate',
-    amount: 100,
-    reference_id: payment._id,
-    reference_type: 'Payment',
-    description: `${paymentSource} payment, receipt: ${receiptNo}`,
-    fiscal_year: fiscalYear,
-    recorded_by: new mongoose.Types.ObjectId(actor.sub),
-  })
+    // Record in cashbook as certificate income
+    await Cashbook.create(
+      [
+        {
+          entry_type: 'income',
+          source: 'certificate',
+          amount: 100,
+          reference_id: payment._id,
+          reference_type: 'Payment',
+          description: `${paymentSource} payment, receipt: ${receiptNo}`,
+          fiscal_year: fiscalYear,
+          recorded_by: new mongoose.Types.ObjectId(actor.sub),
+        },
+      ],
+      txn ? { session: txn } : {},
+    )
 
-  application.payment_id = payment._id as mongoose.Types.ObjectId
-  await application.save()
+    application.payment_id = payment._id as mongoose.Types.ObjectId
+    await application.save(txn ? { session: txn } : {})
 
-  await createAuditLog({
-    user_id: actor.sub,
-    user_role: actor.role,
-    action: `${application.application_type}.pay`,
-    target_model: 'WarishApplication',
-    target_id: application._id as mongoose.Types.ObjectId,
-    status: 'success',
+    await createAuditLog(
+      {
+        user_id: actor.sub,
+        user_role: actor.role,
+        action: `${application.application_type}.pay`,
+        target_model: 'WarishApplication',
+        target_id: application._id as mongoose.Types.ObjectId,
+        status: 'success',
+      },
+      txn,
+    )
   })
 
   return application.toObject()
@@ -401,40 +420,58 @@ export async function issueWarishCertificate(
           heirs: application.heirs,
         }
 
-  const qrCodeUrl = buildCertificateVerificationUrl(certNo)
+  // The QR points at an unguessable token, not the sequential certificate number.
+  const verificationToken = generateVerificationToken()
+  const qrCodeUrl = buildCertificateVerificationUrl(verificationToken)
 
-  const certificate = await Certificate.create({
-    certificate_no: certNo,
-    certificateNo: certNo,
-    referenceNo: certNo,
-    qr_code_url: qrCodeUrl,
-    language,
-    certificate_type: certType,
-    citizen_id: application.applicant_citizen_id,
-    payment_id: application.payment_id,
-    dynamic_data: dynamicData,
-    status: 'approved',
-    approved_by: new mongoose.Types.ObjectId(actor.sub),
-    approved_at: new Date(),
-    fiscal_year: fiscalYear,
-    created_by: new mongoose.Types.ObjectId(actor.sub),
-  })
+  // Issuing the certificate and linking it back to the application are one
+  // atomic unit — otherwise a failure here strands an issued certificate that
+  // the application never points at, and re-issuing burns a second number.
+  const certificate = await withTransaction(async (txn) => {
+    const [created] = await Certificate.create(
+      [
+        {
+          certificate_no: certNo,
+          certificateNo: certNo,
+          referenceNo: certNo,
+          verification_token: verificationToken,
+          qr_code_url: qrCodeUrl,
+          language,
+          certificate_type: certType,
+          citizen_id: application.applicant_citizen_id,
+          payment_id: application.payment_id,
+          dynamic_data: dynamicData,
+          status: 'approved',
+          approved_by: new mongoose.Types.ObjectId(actor.sub),
+          approved_at: new Date(),
+          fiscal_year: fiscalYear,
+          created_by: new mongoose.Types.ObjectId(actor.sub),
+        },
+      ],
+      txn ? { session: txn } : {},
+    )
 
-  if (language === 'bn') {
-    application.certificate_id_bn = certificate._id as mongoose.Types.ObjectId
-  } else {
-    application.certificate_id_en = certificate._id as mongoose.Types.ObjectId
-  }
-  application.certificate_id = certificate._id as mongoose.Types.ObjectId
-  await application.save()
+    if (language === 'bn') {
+      application.certificate_id_bn = created._id as mongoose.Types.ObjectId
+    } else {
+      application.certificate_id_en = created._id as mongoose.Types.ObjectId
+    }
+    application.certificate_id = created._id as mongoose.Types.ObjectId
+    await application.save(txn ? { session: txn } : {})
 
-  await createAuditLog({
-    user_id: actor.sub,
-    user_role: actor.role,
-    action: `${application.application_type}.issue_certificate.${language}`,
-    target_model: 'WarishApplication',
-    target_id: application._id as mongoose.Types.ObjectId,
-    status: 'success',
+    await createAuditLog(
+      {
+        user_id: actor.sub,
+        user_role: actor.role,
+        action: `${application.application_type}.issue_certificate.${language}`,
+        target_model: 'WarishApplication',
+        target_id: application._id as mongoose.Types.ObjectId,
+        status: 'success',
+      },
+      txn,
+    )
+
+    return created
   })
 
   return certificate.toObject()

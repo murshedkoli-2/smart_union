@@ -41,15 +41,8 @@ function LoginForm() {
         return
       }
 
-      // Store access token in memory via a cookie for middleware page guard
-      // The actual API auth uses the Authorization header managed by the client
-      const { accessToken } = data.data
-      document.cookie = `access_token=${accessToken}; path=/; max-age=900; SameSite=Strict${
-        process.env.NODE_ENV === 'production' ? '; Secure' : ''
-      }`
-
-      // Store in sessionStorage for client-side API calls
-      sessionStorage.setItem('access_token', accessToken)
+      // Tokens are set by the server as httpOnly cookies and are deliberately
+      // not readable here. Only non-sensitive display state is cached.
       sessionStorage.setItem('user', JSON.stringify(data.data.user))
 
       router.push(from)
@@ -81,12 +74,6 @@ function LoginForm() {
         return
       }
 
-      const { accessToken } = data.data
-      document.cookie = `access_token=${accessToken}; path=/; max-age=900; SameSite=Strict${
-        process.env.NODE_ENV === 'production' ? '; Secure' : ''
-      }`
-
-      sessionStorage.setItem('access_token', accessToken)
       sessionStorage.setItem('user', JSON.stringify(data.data.user))
 
       router.push(from)

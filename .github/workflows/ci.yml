@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A newer push to the same branch supersedes an in-flight run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+
+    env:
+      # Fake values so modules that read secrets at import time can load.
+      # jwt.ts throws on import without these, which would fail the build.
+      JWT_ACCESS_SECRET: ci-access-secret-not-a-real-key
+      JWT_REFRESH_SECRET: ci-refresh-secret-not-a-real-key
+      MONGODB_URI: mongodb://127.0.0.1:27017/smart_union_ci
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npx eslint .
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      # Runs on Linux, so mongodb-memory-server starts a real mongod and the
+      # database integration suites execute here. They self-skip on machines
+      # that cannot run mongod (notably Windows without the VC++ runtime), so
+      # this job is the gate that actually exercises them — hence the check
+      # that nothing was skipped, which would otherwise turn a broken test
+      # environment into a silently green build.
+      - name: Test
+        run: |
+          set -o pipefail
+          npm test 2>&1 | tee test-output.txt
+          if grep -qE "[0-9]+ skipped" test-output.txt; then
+            echo "::error::Test suites were skipped in CI — mongod likely failed to start."
+            exit 1
+          fi
+
+      - name: Build
+        run: npm run build

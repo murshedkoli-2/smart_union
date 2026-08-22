@@ -1,4 +1,5 @@
 import mongoose, { Schema, Document, Model } from 'mongoose'
+import { softDeletePlugin } from './plugins/soft-delete'
 import type { Gender, HouseType, OwnershipType, CitizenStatus, BloodGroup, Religion, MaritalStatus, EducationLevel } from '@/types/citizen.types'
 
 export interface IAddress {
@@ -50,7 +51,9 @@ export interface ICitizen extends Document {
   religion?: Religion
   marital_status?: MaritalStatus
   education_level?: EducationLevel
-  status: CitizenStatus | 'deleted'
+  status: CitizenStatus
+  /** Set when soft-deleted; null on live records. See plugins/soft-delete. */
+  deleted_at?: Date | null
   approved_by?: mongoose.Types.ObjectId
   approved_at?: Date
   created_by: mongoose.Types.ObjectId
@@ -102,7 +105,10 @@ const FinancialInfoSchema = new Schema<IFinancialInfo>(
 const CitizenSchema = new Schema<ICitizen>(
   {
     user_id: { type: Schema.Types.ObjectId, ref: 'User', default: null },
-    holding_no: { type: String, unique: true, sparse: true },
+    // Uniqueness for holding_no / nid_no / birth_cert_no is enforced by the
+    // partial indexes below, not here, so a soft-deleted record releases its
+    // identifiers without having its values rewritten.
+    holding_no: { type: String },
     ward_no: { type: Number, required: true, min: 1, max: 9 },
     name_bn: { type: String, required: true, trim: true },
     name_en: { type: String, required: true, trim: true },
@@ -114,8 +120,8 @@ const CitizenSchema = new Schema<ICitizen>(
     spouse_name_en: { type: String, default: null, trim: true },
     date_of_birth: { type: Date, required: true },
     gender: { type: String, enum: ['male', 'female', 'other'], required: true },
-    nid_no: { type: String, unique: true, sparse: true, trim: true },
-    birth_cert_no: { type: String, unique: true, sparse: true, trim: true },
+    nid_no: { type: String, trim: true },
+    birth_cert_no: { type: String, trim: true },
     mobile: { type: String, required: true, trim: true },
     address: { type: AddressSchema, required: true },
     permanent_address: { type: AddressSchema, default: null },
@@ -142,8 +148,10 @@ const CitizenSchema = new Schema<ICitizen>(
       default: null,
     },
     status: {
+      // 'deleted' is intentionally gone — deletion is deleted_at, not a status.
+      // Legacy rows carrying it are converted by npm run migrate-soft-delete.
       type: String,
-      enum: ['pending', 'approved', 'rejected', 'deleted'],
+      enum: ['pending', 'approved', 'rejected'],
       default: 'pending',
     },
     approved_by: { type: Schema.Types.ObjectId, ref: 'User', default: null },
@@ -153,10 +161,67 @@ const CitizenSchema = new Schema<ICitizen>(
   { timestamps: true },
 )
 
+CitizenSchema.plugin(softDeletePlugin)
+
+/**
+ * Unique among live records only.
+ *
+ * `$type: 'string'` keeps documents that never had the identifier out of the
+ * index, so many citizens without an NID do not collide on null — the job the
+ * old `sparse: true` did. `deleted_at: null` releases the value when a record
+ * is soft-deleted, which is what removes the need to mangle it.
+ *
+ * These replace the old plain unique indexes. Existing databases must run
+ * `npm run migrate-soft-delete` to drop the old ones and build these.
+ */
+CitizenSchema.index(
+  { holding_no: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { holding_no: { $type: 'string' }, deleted_at: null },
+  },
+)
+CitizenSchema.index(
+  { nid_no: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { nid_no: { $type: 'string' }, deleted_at: null },
+  },
+)
+CitizenSchema.index(
+  { birth_cert_no: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { birth_cert_no: { $type: 'string' }, deleted_at: null },
+  },
+)
+
 CitizenSchema.index({ ward_no: 1 })
 CitizenSchema.index({ 'address.ward_no': 1 })
 CitizenSchema.index({ status: 1 })
 CitizenSchema.index({ mobile: 1 })
+
+/**
+ * Supports the citizen search box.
+ *
+ * The search used to run an unanchored case-insensitive regex across four
+ * fields. No index can serve that — `$options: 'i'` rules out the index even
+ * for an anchored pattern — so every keystroke scanned the whole collection.
+ *
+ * Two indexed paths replace it (see listCitizens in services/citizen.service):
+ *
+ *  - Names go through this text index. `default_language: 'none'` disables
+ *    stemming, which has no meaning for Bengali and would mangle proper nouns
+ *    in either script; tokens are split on whitespace and matched whole.
+ *  - Numbers (mobile, NID) use an anchored prefix regex. Case-insensitivity is
+ *    meaningless for digits, so those queries drop it and use the plain
+ *    ascending indexes below.
+ */
+CitizenSchema.index(
+  { name_bn: 'text', name_en: 'text' },
+  { default_language: 'none', name: 'citizen_name_text' },
+)
+CitizenSchema.index({ nid_no: 1 })
 
 if (process.env.NODE_ENV === 'development') {
   delete mongoose.models.Citizen

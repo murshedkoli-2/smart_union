@@ -1,10 +1,12 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { withDb } from '@/middleware/with-db'
 import { authenticate } from '@/middleware/authenticate'
 import { authorize } from '@/middleware/authorize'
-import { paginatedResponse, errorResponse } from '@/lib/utils/api-response'
+import { paginatedResponse } from '@/lib/utils/api-response'
 import { BadRequestError } from '@/lib/utils/errors'
 import { getAuditLogs } from '@/services/audit-log.service'
+import { PERMISSIONS } from '@/constants/permissions'
+import { parsePagination } from '@/lib/utils/pagination'
 import type { AuthenticatedRequest, RouteContext } from '@/types/api.types'
 
 function parseDate(value: string | null): Date | undefined {
@@ -14,7 +16,7 @@ function parseDate(value: string | null): Date | undefined {
   return date
 }
 
-// GET /api/audit-logs — super_admin and admin
+// GET /api/audit-logs — secretary, or entrepreneur holding 'audit.view'
 const getHandler = async (req: AuthenticatedRequest, _ctx: RouteContext): Promise<NextResponse> => {
   const { searchParams } = new URL(req.url)
 
@@ -35,8 +37,7 @@ const getHandler = async (req: AuthenticatedRequest, _ctx: RouteContext): Promis
     status: (searchParams.get('status') as 'success' | 'failure') ?? undefined,
     from: parseDate(fromRaw),
     to: parseDate(toRaw),
-    page: Number(searchParams.get('page') ?? 1),
-    limit: Number(searchParams.get('limit') ?? 25),
+    ...parsePagination(searchParams, 25),
   }
 
   const result = await getAuditLogs(query)
@@ -44,7 +45,5 @@ const getHandler = async (req: AuthenticatedRequest, _ctx: RouteContext): Promis
 }
 
 export const GET = withDb(
-  authenticate(authorize(['super_admin', 'admin'])(getHandler)),
-) as (req: NextRequest, ctx: RouteContext) => Promise<NextResponse>
-
-export { errorResponse }
+  authenticate(authorize(['secretary', 'entrepreneur'], PERMISSIONS.AUDIT_VIEW)(getHandler)),
+)

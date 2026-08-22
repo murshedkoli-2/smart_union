@@ -1,13 +1,8 @@
-import type { NextResponse } from 'next/server'
 import { errorResponse } from '@/lib/utils/api-response'
 import { ForbiddenError } from '@/lib/utils/errors'
-import type { AuthenticatedRequest, RouteContext } from '@/types/api.types'
+import type { AuthenticatedHandler, AuthenticatedRequest, RouteContext } from '@/types/api.types'
 import type { Role } from '@/constants/roles'
-
-type AuthenticatedHandler = (
-  req: AuthenticatedRequest,
-  ctx: RouteContext,
-) => Promise<NextResponse | Response>
+import type { Permission } from '@/constants/permissions'
 
 /**
  * Role and permission gate.
@@ -20,7 +15,7 @@ type AuthenticatedHandler = (
  */
 export function authorize(
   roles: Role[],
-  permission?: string,
+  permission?: Permission,
 ): (handler: AuthenticatedHandler) => AuthenticatedHandler {
   return (handler: AuthenticatedHandler): AuthenticatedHandler => {
     return async (req: AuthenticatedRequest, ctx: RouteContext) => {

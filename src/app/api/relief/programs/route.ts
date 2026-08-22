@@ -1,8 +1,9 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { withDb } from '@/middleware/with-db'
 import { authenticate } from '@/middleware/authenticate'
 import { authorize } from '@/middleware/authorize'
-import { createdResponse, paginatedResponse, errorResponse } from '@/lib/utils/api-response'
+import { createdResponse, paginatedResponse } from '@/lib/utils/api-response'
+import { parsePagination } from '@/lib/utils/pagination'
 import * as ReliefService from '@/services/relief.service'
 import type { AuthenticatedRequest, RouteContext } from '@/types/api.types'
 
@@ -14,8 +15,7 @@ const getHandler = async (req: AuthenticatedRequest, _ctx: RouteContext): Promis
     fiscal_year: searchParams.get('fiscal_year') ?? undefined,
     program_type: searchParams.get('program_type') ?? undefined,
     is_active: isActiveParam !== null ? isActiveParam === 'true' : undefined,
-    page: Number(searchParams.get('page') ?? 1),
-    limit: Number(searchParams.get('limit') ?? 20),
+    ...parsePagination(searchParams),
   }
   const result = await ReliefService.listPrograms(query, req.user)
   return paginatedResponse(result.programs, result.total, result.page, result.limit)
@@ -30,10 +30,8 @@ const postHandler = async (req: AuthenticatedRequest, _ctx: RouteContext): Promi
 
 export const GET = withDb(
   authenticate(authorize(['secretary', 'entrepreneur'], 'relief.view')(getHandler)),
-) as (req: NextRequest, ctx: RouteContext) => Promise<NextResponse>
+)
 
 export const POST = withDb(
   authenticate(authorize(['secretary', 'entrepreneur'], 'relief.manage')(postHandler)),
-) as (req: NextRequest, ctx: RouteContext) => Promise<NextResponse>
-
-export { errorResponse }
+)

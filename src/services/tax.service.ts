@@ -10,6 +10,7 @@ import {
   ConflictError,
 } from '@/lib/utils/errors'
 import { generateHoldingNo, generateReceiptNo, getCurrentFiscalYear } from '@/lib/utils/serial-generator'
+import { withTransaction } from '@/lib/db/transaction'
 import { createAuditLog } from './audit-log.service'
 import type { JwtAccessPayload } from '@/types/auth.types'
 import Payment, { type IPayment } from '@/models/Payment'
@@ -99,8 +100,13 @@ export async function listTax(
     Tax.countDocuments(filter),
   ])
 
+  // citizen_id is an ObjectId on the schema but a document here because of the
+  // .populate() above, so it needs a cast — a narrow one naming the fields
+  // actually selected, not `any`.
+  type PopulatedCitizen = { name_bn?: string; ward_no?: number }
+
   const records = taxRecords.map((tax) => {
-    const citizen = tax.citizen_id as any
+    const citizen = tax.citizen_id as unknown as PopulatedCitizen | null
     return {
       ...tax,
       citizen_name: citizen?.name_bn,
@@ -139,57 +145,80 @@ export async function payTax(
   const year = new Date().getFullYear()
   const fiscalYear = getCurrentFiscalYear()
 
-  // Generate receipt number
+  // Sequence generators run outside the transaction on purpose — see
+  // withTransaction. A rollback burns a number instead of risking a duplicate.
   const receiptNo = await generateReceiptNo(year)
+  const needsHoldingNo = !citizen.holding_no
+  const holdingNo = needsHoldingNo
+    ? await generateHoldingNo(citizen.ward_no)
+    : (citizen.holding_no as string)
 
-  // Create payment record
-  const paymentData: Partial<IPayment> = {
-    receipt_no: receiptNo,
-    payment_type: 'tax',
-    source_type: 'tax',
-    reference_id: tax._id as mongoose.Types.ObjectId,
-    amount: tax.amount,
-    payment_method: 'cash',
-    paid_by_citizen: new mongoose.Types.ObjectId(dto.paid_by_citizen),
-    collected_by: new mongoose.Types.ObjectId(actor.sub),
-  }
-  if (dto.note) paymentData.note = dto.note
-  const payment = await Payment.create(paymentData)
+  // Payment, holding number, tax status, ledger entry and audit record are one
+  // atomic unit. Split across separate writes, a mid-flight failure could mark
+  // tax paid with no payment behind it, or bank money with no ledger line.
+  const payment = await withTransaction(async (txn) => {
+    const paymentData: Partial<IPayment> = {
+      receipt_no: receiptNo,
+      payment_type: 'tax',
+      source_type: 'tax',
+      reference_id: tax._id as mongoose.Types.ObjectId,
+      amount: tax.amount,
+      payment_method: 'cash',
+      paid_by_citizen: new mongoose.Types.ObjectId(dto.paid_by_citizen),
+      collected_by: new mongoose.Types.ObjectId(actor.sub),
+    }
+    if (dto.note) paymentData.note = dto.note
 
-  // Generate holding_no if citizen doesn't have one yet (first tax payment)
-  let holdingNo = citizen.holding_no
-  if (!holdingNo) {
-    holdingNo = await generateHoldingNo(citizen.ward_no)
-    await Citizen.updateOne({ _id: citizen._id }, { $set: { holding_no: holdingNo } })
-  }
+    const [createdPayment] = await Payment.create([paymentData], txn ? { session: txn } : {})
 
-  // Update tax record
-  tax.status = 'paid'
-  tax.payment_id = payment._id as mongoose.Types.ObjectId
-  tax.paid_at = new Date()
-  tax.holding_no = holdingNo
-  await tax.save()
+    // Assign holding_no on first tax payment.
+    if (needsHoldingNo) {
+      await Citizen.updateOne(
+        { _id: citizen._id },
+        { $set: { holding_no: holdingNo } },
+        txn ? { session: txn } : {},
+      )
+    }
 
-  // Create cashbook entry
-  await Cashbook.create({
-    entry_type: 'income',
-    source: 'tax',
-    amount: tax.amount,
-    reference_id: payment._id,
-    reference_type: 'Payment',
-    description: `Tax payment for holding ${holdingNo}, fiscal year ${tax.fiscal_year}`,
-    fiscal_year: fiscalYear,
-    recorded_by: new mongoose.Types.ObjectId(actor.sub),
-  })
+    tax.status = 'paid'
+    tax.payment_id = createdPayment._id as mongoose.Types.ObjectId
+    tax.paid_at = new Date()
+    tax.holding_no = holdingNo
+    await tax.save(txn ? { session: txn } : {})
 
-  await createAuditLog({
-    user_id: actor.sub,
-    user_role: actor.role,
-    action: 'tax.pay',
-    target_model: 'Tax',
-    target_id: tax._id as mongoose.Types.ObjectId,
-    changes: { before: { status: 'unpaid' }, after: { status: 'paid', payment_id: payment._id } },
-    status: 'success',
+    await Cashbook.create(
+      [
+        {
+          entry_type: 'income',
+          source: 'tax',
+          amount: tax.amount,
+          reference_id: createdPayment._id,
+          reference_type: 'Payment',
+          description: `Tax payment for holding ${holdingNo}, fiscal year ${tax.fiscal_year}`,
+          fiscal_year: fiscalYear,
+          recorded_by: new mongoose.Types.ObjectId(actor.sub),
+        },
+      ],
+      txn ? { session: txn } : {},
+    )
+
+    await createAuditLog(
+      {
+        user_id: actor.sub,
+        user_role: actor.role,
+        action: 'tax.pay',
+        target_model: 'Tax',
+        target_id: tax._id as mongoose.Types.ObjectId,
+        changes: {
+          before: { status: 'unpaid' },
+          after: { status: 'paid', payment_id: createdPayment._id },
+        },
+        status: 'success',
+      },
+      txn,
+    )
+
+    return createdPayment
   })
 
   const taxObject = tax.toObject()

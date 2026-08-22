@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { withDb } from '@/middleware/with-db'
 import { authenticate } from '@/middleware/authenticate'
 import { authorize } from '@/middleware/authorize'
@@ -106,4 +106,4 @@ async function handler(req: AuthenticatedRequest, _ctx: RouteContext): Promise<N
 
 export const GET = withDb(
   authenticate(authorize(['secretary', 'entrepreneur', 'citizen'])(handler)),
-) as (req: NextRequest, ctx: RouteContext) => Promise<NextResponse>
+)

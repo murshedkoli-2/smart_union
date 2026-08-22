@@ -1,8 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { withDb } from '@/middleware/with-db'
 import { authenticate } from '@/middleware/authenticate'
 import { authorize } from '@/middleware/authorize'
-import { successResponse, createdResponse, errorResponse } from '@/lib/utils/api-response'
+import { successResponse, createdResponse } from '@/lib/utils/api-response'
 import * as TaxService from '@/services/tax.service'
 import type { AuthenticatedRequest, RouteContext } from '@/types/api.types'
 
@@ -23,10 +23,8 @@ const postHandler = async (req: AuthenticatedRequest, ctx: RouteContext): Promis
 
 export const GET = withDb(
   authenticate(authorize(['secretary', 'entrepreneur'], 'citizen.view')(getHandler)),
-) as (req: NextRequest, ctx: RouteContext) => Promise<NextResponse>
+)
 
 export const POST = withDb(
   authenticate(authorize(['secretary', 'entrepreneur'], 'tax.create')(postHandler)),
-) as (req: NextRequest, ctx: RouteContext) => Promise<NextResponse>
-
-export { errorResponse }
+)

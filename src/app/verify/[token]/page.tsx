@@ -1,4 +1,4 @@
-﻿interface VerifyResponse {
+interface VerifyResponse {
   success: boolean
   message: string
   data?: {
@@ -19,14 +19,22 @@
   }
 }
 
+/**
+ * Public certificate verification page.
+ *
+ * The route param is an unguessable verification token taken from the QR code
+ * on the printed certificate — not the certificate number. The certificate
+ * number is shown from the API response once the token resolves, so it is
+ * never the thing being looked up.
+ */
 export default async function VerifyCertificatePage({
   params,
 }: {
-  params: Promise<{ certificate_no: string }>
+  params: Promise<{ token: string }>
 }) {
-  const { certificate_no } = await params
+  const { token } = await params
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/+$/, '') || 'http://localhost:3000'
-  const response = await fetch(`${baseUrl}/api/verify/${encodeURIComponent(certificate_no)}`, {
+  const response = await fetch(`${baseUrl}/api/verify/${encodeURIComponent(token)}`, {
     cache: 'no-store',
   })
 
@@ -54,7 +62,14 @@ export default async function VerifyCertificatePage({
 
         <h1 className="text-2xl font-bold text-slate-900">Certificate Verification</h1>
         <p className="mt-2 text-sm text-slate-500">
-          Public verification record for certificate <strong>{certificate_no}</strong>
+          {isValid && data?.certificate_no ? (
+            <>
+              Public verification record for certificate{' '}
+              <strong>{data.certificate_no}</strong>
+            </>
+          ) : (
+            'Scan the QR code on a certificate to verify it.'
+          )}
         </p>
 
         {isValid && data ? (
