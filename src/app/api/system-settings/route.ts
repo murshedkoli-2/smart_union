@@ -9,7 +9,7 @@ import type { AuthenticatedRequest, RouteContext } from '@/types/api.types'
 
 const getHandler = async (req: AuthenticatedRequest, ctx: RouteContext): Promise<NextResponse> => {
   void ctx
-  const settings = await SystemSettingsService.getSystemSettings(req.user)
+  const settings = await SystemSettingsService.getSystemSettings()
   return successResponse(settings)
 }
 

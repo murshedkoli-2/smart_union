@@ -21,8 +21,8 @@ function normalizeMembers(value: unknown) {
     .filter((member) => member.name_bn && member.name_en && member.designation_bn && member.designation_en)
 }
 
-export async function getSystemSettings(_actor: JwtAccessPayload) {
-  void _actor
+/** Settings are union-wide and readable by any authenticated role. */
+export async function getSystemSettings() {
   const settings = await SystemSettings.findOne({ key: 'default' }).lean()
 
   if (settings) {

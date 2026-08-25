@@ -1,3 +1,5 @@
+import { escapeHtml } from './html'
+
 export interface FamilyCertificateData {
   certificateNo?: string
   issueDate?: string
@@ -28,11 +30,7 @@ export interface FamilyCertificateData {
   union_logo?: string | null
 }
 
-const esc = (value: unknown) =>
-  String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
+const esc = escapeHtml
 
 const bnDigits = (value: number) =>
   String(value).replace(/\d/g, (digit) => '0123456789'.includes(digit) ? '০১২৩৪৫৬৭৮৯'[Number(digit)] : digit)

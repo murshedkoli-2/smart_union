@@ -16,10 +16,9 @@ export function withRateLimit(bucket: string, options: RateLimitOptions) {
     return async (req: NextRequest, ctx: RouteContext) => {
       const result = hit(`${bucket}:${clientIp(req)}`, options)
 
+      // errorResponse sets Retry-After from the error itself.
       if (!result.allowed) {
-        const response = errorResponse(new TooManyRequestsError(result.retryAfter))
-        response.headers.set('Retry-After', String(result.retryAfter))
-        return response
+        return errorResponse(new TooManyRequestsError(result.retryAfter))
       }
 
       return handler(req, ctx)

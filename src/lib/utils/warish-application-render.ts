@@ -1,3 +1,4 @@
+import { escapeHtml as esc } from './html'
 
 interface WarishData {
   deceased_name_bn: string
@@ -61,10 +62,10 @@ export function generateWarishApplicationHtml(data: WarishData): string {
   const heirsTableRows = heirs.map((h, i) => `
     <tr>
       <td class="td-center">${banglaSerial(i + 1)}</td>
-      <td class="td-left">${h.name_bn}</td>
-      <td class="td-center">${h.relation}</td>
+      <td class="td-left">${esc(h.name_bn)}</td>
+      <td class="td-center">${esc(h.relation)}</td>
       <td class="td-center">${formatDateBN(h.birth_date)}</td>
-      <td class="td-center">${h.nid_no || '—'}</td>
+      <td class="td-center">${esc(h.nid_no || '—')}</td>
     </tr>
   `).join('')
 
@@ -385,14 +386,14 @@ export function generateWarishApplicationHtml(data: WarishData): string {
   <div class="header">
     <div class="logo-wrap">
       ${systemSettings.union_logo
-        ? `<img src="${systemSettings.union_logo}" alt="লোগো">`
+        ? `<img src="${esc(systemSettings.union_logo)}" alt="লোগো">`
         : `<div class="logo-placeholder">🏛️</div>`}
     </div>
     <div class="header-text">
       <div class="govt-label">গণপ্রজাতন্ত্রী বাংলাদেশ সরকার · স্থানীয় সরকার বিভাগ</div>
-      <div class="union-name-bn">${systemSettings.union_name_bn}</div>
-      ${systemSettings.union_name_en ? `<div class="union-name-en">${systemSettings.union_name_en}</div>` : ''}
-      <div class="union-address">${systemSettings.address_bn}</div>
+      <div class="union-name-bn">${esc(systemSettings.union_name_bn)}</div>
+      ${systemSettings.union_name_en ? `<div class="union-name-en">${esc(systemSettings.union_name_en)}</div>` : ''}
+      <div class="union-address">${esc(systemSettings.address_bn)}</div>
     </div>
   </div>
 
@@ -404,8 +405,8 @@ export function generateWarishApplicationHtml(data: WarishData): string {
 
   <!-- ── META ROW ───────────────────────────── -->
   <div class="meta-row">
-    <div>আবেদন তারিখ / Application Date: <span>${printDate}</span></div>
-    ${data.applicationId ? `<div>আবেদন আইডি / App ID: <span>${data.applicationId}</span></div>` : ''}
+    <div>আবেদন তারিখ / Application Date: <span>${esc(printDate)}</span></div>
+    ${data.applicationId ? `<div>আবেদন আইডি / App ID: <span>${esc(data.applicationId)}</span></div>` : ''}
     <div></div>
   </div>
 
@@ -420,37 +421,37 @@ export function generateWarishApplicationHtml(data: WarishData): string {
         <div class="field-row">
           <span class="field-label">নাম (বাংলা)</span>
           <span class="field-colon">:</span>
-          <span class="field-value">${data.deceased_name_bn}</span>
+          <span class="field-value">${esc(data.deceased_name_bn)}</span>
         </div>
         <div class="field-row">
           <span class="field-label">Name (English)</span>
           <span class="field-colon">:</span>
-          <span class="field-value">${data.deceased_name_en}</span>
+          <span class="field-value">${esc(data.deceased_name_en)}</span>
         </div>
         <div class="field-row">
           <span class="field-label">পিতার নাম</span>
           <span class="field-colon">:</span>
-          <span class="field-value">${data.deceased_father_name_bn}</span>
+          <span class="field-value">${esc(data.deceased_father_name_bn)}</span>
         </div>
         <div class="field-row">
           <span class="field-label">Father's Name</span>
           <span class="field-colon">:</span>
-          <span class="field-value">${data.deceased_father_name_en || '—'}</span>
+          <span class="field-value">${esc(data.deceased_father_name_en || '—')}</span>
         </div>
         <div class="field-row">
           <span class="field-label">মাতার নাম</span>
           <span class="field-colon">:</span>
-          <span class="field-value">${data.deceased_mother_name_bn || '—'}</span>
+          <span class="field-value">${esc(data.deceased_mother_name_bn || '—')}</span>
         </div>
         <div class="field-row">
           <span class="field-label">Mother's Name</span>
           <span class="field-colon">:</span>
-          <span class="field-value">${data.deceased_mother_name_en || '—'}</span>
+          <span class="field-value">${esc(data.deceased_mother_name_en || '—')}</span>
         </div>
         <div class="field-row">
           <span class="field-label">জাতীয় পরিচয়পত্র নং</span>
           <span class="field-colon">:</span>
-          <span class="field-value">${data.deceased_nid || '—'}</span>
+          <span class="field-value">${esc(data.deceased_nid || '—')}</span>
         </div>
         <div class="field-row">
           <span class="field-label">মৃত্যুর তারিখ</span>
@@ -472,22 +473,22 @@ export function generateWarishApplicationHtml(data: WarishData): string {
         <div class="field-row">
           <span class="field-label">নাম (বাংলা)</span>
           <span class="field-colon">:</span>
-          <span class="field-value">${applicant.name_bn}</span>
+          <span class="field-value">${esc(applicant.name_bn)}</span>
         </div>
         <div class="field-row">
           <span class="field-label">Name (English)</span>
           <span class="field-colon">:</span>
-          <span class="field-value">${applicant.name_en}</span>
+          <span class="field-value">${esc(applicant.name_en)}</span>
         </div>
         <div class="field-row">
           <span class="field-label">মোবাইল নং</span>
           <span class="field-colon">:</span>
-          <span class="field-value">${applicant.mobile}</span>
+          <span class="field-value">${esc(applicant.mobile)}</span>
         </div>
         <div class="field-row">
           <span class="field-label">জাতীয় পরিচয়পত্র নং</span>
           <span class="field-colon">:</span>
-          <span class="field-value">${applicant.nid_no || '—'}</span>
+          <span class="field-value">${esc(applicant.nid_no || '—')}</span>
         </div>
       </div>
     </div>
@@ -543,15 +544,15 @@ export function generateWarishApplicationHtml(data: WarishData): string {
     </div>
     <div class="sig-box">
       <div class="sig-space"></div>
-      <div class="sig-title">${systemSettings.chairman_name_bn || 'চেয়ারম্যান'}</div>
-      <div class="sig-subtitle">চেয়ারম্যান / Chairman — ${systemSettings.union_name_bn}</div>
+      <div class="sig-title">${esc(systemSettings.chairman_name_bn || 'চেয়ারম্যান')}</div>
+      <div class="sig-subtitle">চেয়ারম্যান / Chairman — ${esc(systemSettings.union_name_bn)}</div>
     </div>
   </div>
 
   <!-- ── FOOTER ─────────────────────────────── -->
   <div class="doc-footer">
     <div>গণপ্রজাতন্ত্রী বাংলাদেশ সরকার · স্থানীয় সরকার বিভাগ</div>
-    <div>মুদ্রণ তারিখ: ${printDate}</div>
+    <div>মুদ্রণ তারিখ: ${esc(printDate)}</div>
   </div>
 
 </div>

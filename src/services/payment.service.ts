@@ -9,6 +9,7 @@ import { inTransaction } from '@/lib/db/transaction'
 import { createAuditLog } from './audit-log.service'
 import { getSystemSettings } from './system-settings.service'
 import type { JwtAccessPayload } from '@/types/auth.types'
+import { clampPagination } from '@/lib/utils/pagination'
 
 // ── Collect Payment ───────────────────────────────────────────────────────────
 
@@ -109,7 +110,8 @@ export async function listPayments(
   },
   actor: JwtAccessPayload,
 ) {
-  const { payment_type, source_type, collected_by, page = 1, limit = 20 } = query
+  const { payment_type, source_type, collected_by } = query
+  const { page, limit } = clampPagination(query)
 
   const filter: Record<string, unknown> = {}
   if (payment_type) filter.payment_type = payment_type
@@ -143,12 +145,38 @@ export async function listPayments(
 
 // ── Get Payment By ID ─────────────────────────────────────────────────────────
 
-export async function getPaymentById(id: string, _actor: JwtAccessPayload) {
+/**
+ * Applies the same visibility rule as listPayments to a single record.
+ *
+ * An entrepreneur sees only what they collected. Without this, the ownership
+ * filter in listPayments was decorative: the ids it withholds were still
+ * readable one at a time through GET /api/payments/[id].
+ *
+ * Not-found rather than forbidden on purpose — a 403 confirms the id exists,
+ * which is the fact being withheld.
+ */
+function assertCanReadPayment(
+  payment: { collected_by?: unknown },
+  actor: JwtAccessPayload,
+): void {
+  if (actor.role !== 'entrepreneur') return
+
+  // collected_by is populated, so read the id off the populated document.
+  const collector = payment.collected_by as { _id?: mongoose.Types.ObjectId } | mongoose.Types.ObjectId | undefined
+  const collectorId = String(
+    (collector as { _id?: mongoose.Types.ObjectId })?._id ?? collector ?? '',
+  )
+
+  if (collectorId !== actor.sub) throw new NotFoundError('Payment not found')
+}
+
+export async function getPaymentById(id: string, actor: JwtAccessPayload) {
   const payment = await Payment.findById(id)
     .populate('paid_by_citizen', 'name_bn name_en mobile')
     .populate('collected_by', 'name email')
     .lean()
   if (!payment) throw new NotFoundError('Payment not found')
+  assertCanReadPayment(payment, actor)
   return payment
 }
 
@@ -162,6 +190,7 @@ export async function getTaxPaymentReceiptData(paymentId: string, actor: JwtAcce
     .lean()
 
   if (!payment) throw new NotFoundError('Payment not found')
+  assertCanReadPayment(payment, actor)
 
   // Verify it's a tax payment
   if (payment.payment_type !== 'tax') {
@@ -176,7 +205,7 @@ export async function getTaxPaymentReceiptData(paymentId: string, actor: JwtAcce
   if (!tax) throw new NotFoundError('Tax record not found')
 
   // Get system settings
-  const systemSettings = await getSystemSettings(actor)
+  const systemSettings = await getSystemSettings()
 
   return {
     payment,

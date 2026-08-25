@@ -21,6 +21,7 @@ import {
 import { createAuditLog } from './audit-log.service'
 import type { JwtAccessPayload } from '@/types/auth.types'
 import type { CertificateLanguage, CertificateTypeCode } from '@/constants/certificate-types'
+import { clampPagination } from '@/lib/utils/pagination'
 
 function normalizeApplicationType(value: unknown): WarishApplicationType {
   return value === 'family_certificate' ? 'family_certificate' : 'warish'
@@ -139,7 +140,8 @@ export async function listWarish(
   _actor: JwtAccessPayload,
 ) {
   void _actor
-  const { status, applicant_citizen_id, application_type, page = 1, limit = 20 } = query
+  const { status, applicant_citizen_id, application_type } = query
+  const { page, limit } = clampPagination(query)
 
   const filter: Record<string, unknown> = {}
   if (status) filter.status = status

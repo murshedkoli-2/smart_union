@@ -19,6 +19,7 @@ import { createAuditLog } from './audit-log.service'
 import { collectPayment } from './payment.service'
 import type { JwtAccessPayload } from '@/types/auth.types'
 import type { CertificateLanguage, CertificateTypeCode } from '@/constants/certificate-types'
+import { clampPagination } from '@/lib/utils/pagination'
 
 function deriveTemplateCategory(name: string): string {
   const normalized = name.trim().toLowerCase()
@@ -111,7 +112,8 @@ export async function listCertificates(
   },
   _actor: JwtAccessPayload,
 ) {
-  const { language, certificate_type, status, citizen_id, fiscal_year, page = 1, limit = 20 } = query
+  const { language, certificate_type, status, citizen_id, fiscal_year } = query
+  const { page, limit } = clampPagination(query)
 
   const filter: Record<string, unknown> = {}
   if (language) filter.language = language
@@ -417,7 +419,8 @@ export async function listTemplates(
   _actor: JwtAccessPayload,
 ) {
   void _actor
-  const { language, template_type, certificate_category, is_active, page = 1, limit = 20 } = query
+  const { language, template_type, certificate_category, is_active } = query
+  const { page, limit } = clampPagination(query)
 
   const filter: Record<string, unknown> = {}
   if (language) filter.language = language

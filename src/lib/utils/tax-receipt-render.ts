@@ -1,3 +1,4 @@
+import { escapeHtml as esc } from './html'
 import type { IPayment } from '@/models/Payment'
 
 interface TaxReceiptData {
@@ -54,7 +55,7 @@ export function generateTaxReceiptHtml(data: TaxReceiptData): string {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>হোল্ডিং ট্যাক্স রসিদ - ${payment.receipt_no}</title>
+  <title>হোল্ডিং ট্যাক্স রসিদ - ${esc(payment.receipt_no)}</title>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
@@ -384,12 +385,12 @@ export function generateTaxReceiptHtml(data: TaxReceiptData): string {
     <div class="receipt-header">
       <div class="header-content">
         ${systemSettings.union_logo ? `
-          <img src="${systemSettings.union_logo}" alt="Logo" class="logo" />
+          <img src="${esc(systemSettings.union_logo)}" alt="Logo" class="logo" />
         ` : `
           <div class="logo">🏛️</div>
         `}
-        <div class="union-name">${systemSettings.union_name_bn}</div>
-        <div class="union-address">${systemSettings.address_bn}</div>
+        <div class="union-name">${esc(systemSettings.union_name_bn)}</div>
+        <div class="union-address">${esc(systemSettings.address_bn)}</div>
         <div class="receipt-title">
           <h1>হোল্ডিং ট্যাক্স রসিদ</h1>
           <p>Holding Tax Receipt</p>
@@ -401,15 +402,15 @@ export function generateTaxReceiptHtml(data: TaxReceiptData): string {
     <div class="receipt-meta">
       <div class="meta-item">
         <div class="meta-label">রসিদ নং / Receipt No</div>
-        <div class="meta-value">${payment.receipt_no}</div>
+        <div class="meta-value">${esc(payment.receipt_no)}</div>
       </div>
       <div class="meta-item">
         <div class="meta-label">তারিখ / Date</div>
-        <div class="meta-value">${paymentDate}</div>
+        <div class="meta-value">${esc(paymentDate)}</div>
       </div>
       <div class="meta-item">
         <div class="meta-label">সময় / Time</div>
-        <div class="meta-value">${paymentTime}</div>
+        <div class="meta-value">${esc(paymentTime)}</div>
       </div>
     </div>
 
@@ -424,18 +425,18 @@ export function generateTaxReceiptHtml(data: TaxReceiptData): string {
         <div class="info-grid">
           <div class="info-item">
             <div class="info-label">নাম / Name</div>
-            <div class="info-value">${payment.paid_by_citizen.name_bn}<br><small>${payment.paid_by_citizen.name_en}</small></div>
+            <div class="info-value">${esc(payment.paid_by_citizen.name_bn)}<br><small>${esc(payment.paid_by_citizen.name_en)}</small></div>
           </div>
           ${payment.paid_by_citizen.nid_no ? `
             <div class="info-item">
               <div class="info-label">জাতীয় পরিচয়পত্র / NID</div>
-              <div class="info-value">${payment.paid_by_citizen.nid_no}</div>
+              <div class="info-value">${esc(payment.paid_by_citizen.nid_no)}</div>
             </div>
           ` : ''}
           ${payment.paid_by_citizen.mobile ? `
             <div class="info-item">
               <div class="info-label">মোবাইল / Mobile</div>
-              <div class="info-value">${payment.paid_by_citizen.mobile}</div>
+              <div class="info-value">${esc(payment.paid_by_citizen.mobile)}</div>
             </div>
           ` : ''}
         </div>
@@ -450,19 +451,19 @@ export function generateTaxReceiptHtml(data: TaxReceiptData): string {
         <div class="info-grid">
           <div class="info-item">
             <div class="info-label">হোল্ডিং নং / Holding No</div>
-            <div class="info-value">${tax.holding_no}</div>
+            <div class="info-value">${esc(tax.holding_no)}</div>
           </div>
           <div class="info-item">
             <div class="info-label">ওয়ার্ড নং / Ward No</div>
-            <div class="info-value">${tax.citizen_id?.address?.ward_no ?? '—'}</div>
+            <div class="info-value">${esc(tax.citizen_id?.address?.ward_no ?? '—')}</div>
           </div>
           <div class="info-item">
             <div class="info-label">অর্থবছর / Fiscal Year</div>
-            <div class="info-value">${tax.fiscal_year}</div>
+            <div class="info-value">${esc(tax.fiscal_year)}</div>
           </div>
           <div class="info-item">
             <div class="info-label">ঠিকানা / Address</div>
-            <div class="info-value">${tax.citizen_id?.address?.village_bn ?? '—'}</div>
+            <div class="info-value">${esc(tax.citizen_id?.address?.village_bn ?? '—')}</div>
           </div>
         </div>
       </div>
@@ -471,7 +472,7 @@ export function generateTaxReceiptHtml(data: TaxReceiptData): string {
       <div class="amount-highlight">
         <div class="amount-content">
           <div class="amount-label">প্রদত্ত পরিমাণ / Amount Paid</div>
-          <div class="amount-value">৳ ${tax.amount.toLocaleString('bn-BD')}</div>
+          <div class="amount-value">৳ ${esc(tax.amount.toLocaleString('bn-BD'))}</div>
         </div>
       </div>
 
@@ -488,12 +489,12 @@ export function generateTaxReceiptHtml(data: TaxReceiptData): string {
           </div>
           <div class="info-item">
             <div class="info-label">গ্রহণকারী / Collected By</div>
-            <div class="info-value">${payment.collected_by.name}</div>
+            <div class="info-value">${esc(payment.collected_by.name)}</div>
           </div>
           ${payment.note ? `
             <div class="info-item" style="grid-column: span 2;">
               <div class="info-label">নোট / Note</div>
-              <div class="info-value">${payment.note}</div>
+              <div class="info-value">${esc(payment.note)}</div>
             </div>
           ` : ''}
         </div>
@@ -521,7 +522,7 @@ export function generateTaxReceiptHtml(data: TaxReceiptData): string {
         </span>
       </div>
       <div class="footer-info">
-        Generated on ${new Date().toLocaleDateString('en-BD')} • ${systemSettings.union_name_en}
+        Generated on ${new Date().toLocaleDateString('en-BD')} • ${esc(systemSettings.union_name_en)}
       </div>
     </div>
   </div>

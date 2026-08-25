@@ -11,6 +11,7 @@ import {
 import { createAuditLog } from './audit-log.service'
 import type { JwtAccessPayload } from '@/types/auth.types'
 import { ROLES } from '@/constants/roles'
+import { clampPagination } from '@/lib/utils/pagination'
 
 // ── Create Admin ──────────────────────────────────────────────────────────────
 
@@ -66,7 +67,8 @@ export async function listUsers(
     throw new ForbiddenError('Access denied')
   }
 
-  const { role, status, page = 1, limit = 20 } = query
+  const { role, status } = query
+  const { page, limit } = clampPagination(query)
   const filter: Record<string, unknown> = { role: { $nin: [ROLES.SECRETARY, ROLES.CITIZEN] } }
   if (role && role !== ROLES.SECRETARY && role !== ROLES.CITIZEN) filter.role = role
   if (status) filter.status = status

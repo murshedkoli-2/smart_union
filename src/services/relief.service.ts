@@ -11,6 +11,7 @@ import {
 } from '@/lib/utils/errors'
 import { createAuditLog } from './audit-log.service'
 import type { JwtAccessPayload } from '@/types/auth.types'
+import { clampPagination } from '@/lib/utils/pagination'
 
 // ── Create Program ────────────────────────────────────────────────────────────
 
@@ -58,7 +59,8 @@ export async function listPrograms(
   },
   _actor: JwtAccessPayload,
 ) {
-  const { fiscal_year, program_type, is_active, page = 1, limit = 20 } = query
+  const { fiscal_year, program_type, is_active } = query
+  const { page, limit } = clampPagination(query)
 
   const filter: Record<string, unknown> = {}
   if (fiscal_year) filter.fiscal_year = fiscal_year
@@ -167,7 +169,8 @@ export async function listLists(
   },
   _actor: JwtAccessPayload,
 ) {
-  const { program_id, status, ward_no, page = 1, limit = 20 } = query
+  const { program_id, status, ward_no } = query
+  const { page, limit } = clampPagination(query)
 
   const filter: Record<string, unknown> = {}
   if (program_id) filter.program_id = new mongoose.Types.ObjectId(program_id)
@@ -394,7 +397,8 @@ export async function listBeneficiaries(
   const list = await ReliefList.findById(listId).lean()
   if (!list) throw new NotFoundError('Relief list not found')
 
-  const { ward_no, page = 1, limit = 20 } = query
+  const { ward_no } = query
+  const { page, limit } = clampPagination(query)
   const filter: Record<string, unknown> = {
     relief_list_id: new mongoose.Types.ObjectId(listId),
   }

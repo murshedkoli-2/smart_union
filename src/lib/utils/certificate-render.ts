@@ -1,15 +1,5 @@
-function escapeHtml(value: unknown): string {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
-}
-
-function escapeRegex(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
+import { escapeHtml } from './html'
+import { escapeRegex } from './mongo-query'
 
 const LEGACY_SYSTEM_PLACEHOLDER_PATTERN =
   /\{\{\s*(union_name(?:_(?:bn|en))?|chairman_name(?:_(?:bn|en))?|union_address(?:_(?:bn|en))?|union_logo_url|union_members_text(?:_(?:bn|en))?|issue_date|certificate_no|verification_url|verification_qr(?:_html)?)\s*\}\}/gi

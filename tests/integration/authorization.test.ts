@@ -61,3 +61,38 @@ describeWithDb('payment listing scope', () => {
     expect(String(result.payments[0].collected_by._id)).toBe(entrepreneurB.sub)
   })
 })
+
+describeWithDb('single payment scope', () => {
+  it('hides another collector\'s payment behind a 404', async () => {
+    const other = await PaymentService.collectPayment(paymentDto(), entrepreneurB)
+
+    // The list filter is only half the rule: without the same check here, the
+    // ids listPayments withholds were still readable one at a time.
+    await expect(
+      PaymentService.getPaymentById(String(other._id), entrepreneurA),
+    ).rejects.toThrow('Payment not found')
+  })
+
+  it('lets an entrepreneur read their own payment', async () => {
+    const own = await PaymentService.collectPayment(paymentDto(), entrepreneurA)
+    const found = await PaymentService.getPaymentById(String(own._id), entrepreneurA)
+    expect(String(found._id)).toBe(String(own._id))
+  })
+
+  it('lets a secretary read any payment', async () => {
+    const other = await PaymentService.collectPayment(paymentDto(), entrepreneurB)
+    const found = await PaymentService.getPaymentById(String(other._id), secretary)
+    expect(String(found._id)).toBe(String(other._id))
+  })
+
+  it('hides another collector\'s tax receipt too', async () => {
+    const other = await PaymentService.collectPayment(
+      { ...paymentDto(), payment_type: 'tax', source_type: 'tax' },
+      entrepreneurB,
+    )
+
+    await expect(
+      PaymentService.getTaxPaymentReceiptData(String(other._id), entrepreneurA),
+    ).rejects.toThrow('Payment not found')
+  })
+})

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import mongoose from 'mongoose'
 import { ZodError } from 'zod'
-import { AppError, ValidationError } from './errors'
+import { AppError, TooManyRequestsError, ValidationError } from './errors'
 
 interface DuplicateKeyError {
   code: number
@@ -105,7 +105,12 @@ export function errorResponse(error: unknown): NextResponse<ApiResponse> {
     if (error instanceof ValidationError && error.details) {
       body.errors = error.details
     }
-    return NextResponse.json(body, { status: error.statusCode })
+    const response = NextResponse.json(body, { status: error.statusCode })
+    // Set here rather than at each throw site, so every 429 carries it.
+    if (error instanceof TooManyRequestsError) {
+      response.headers.set('Retry-After', String(error.retryAfter))
+    }
+    return response
   }
 
   // Malformed ObjectId in a route param or filter.

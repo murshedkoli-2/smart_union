@@ -1,3 +1,5 @@
+import { escapeHtml } from './html'
+
 /**
  * Custom Warish Certificate Renderer
  * Generates government-style HTML for both Bangla and English Warish certificates.
@@ -56,7 +58,7 @@ function toBnDigits(n: number): string {
   return String(n).replace(/\d/g, d => '০১২৩৪৫৬৭৮৯'[+d])
 }
 
-const esc = (s: unknown) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+const esc = escapeHtml
 
 // ─── shared CSS ───────────────────────────────────────────────────────────────
 

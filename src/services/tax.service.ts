@@ -14,6 +14,7 @@ import { withTransaction } from '@/lib/db/transaction'
 import { createAuditLog } from './audit-log.service'
 import type { JwtAccessPayload } from '@/types/auth.types'
 import Payment, { type IPayment } from '@/models/Payment'
+import { clampPagination } from '@/lib/utils/pagination'
 
 // ── Create Tax ────────────────────────────────────────────────────────────────
 
@@ -70,7 +71,8 @@ export async function listTax(
   },
   actor: JwtAccessPayload,
 ) {
-  const { fiscal_year, status, citizen_id, page = 1, limit = 20 } = query
+  const { fiscal_year, status, citizen_id } = query
+  const { page, limit } = clampPagination(query)
 
   const filter: Record<string, unknown> = {}
   if (fiscal_year) filter.fiscal_year = fiscal_year

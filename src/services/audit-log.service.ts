@@ -4,6 +4,7 @@ import AuditLog from '@/models/AuditLog'
 import { containsFilter } from '@/lib/utils/mongo-query'
 import { getRequestContext } from '@/lib/observability/request-context'
 import type { Role } from '@/constants/roles'
+import { clampPagination } from '@/lib/utils/pagination'
 
 export interface AuditLogParams {
   user_id: string | mongoose.Types.ObjectId
@@ -93,9 +94,8 @@ export async function getAuditLogs(query: AuditLogQuery) {
     status,
     from,
     to,
-    page = 1,
-    limit = 20,
   } = query
+  const { page, limit } = clampPagination(query)
 
   const filter: Record<string, unknown> = {}
   if (user_id) filter.user_id = user_id

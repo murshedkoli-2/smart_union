@@ -1,3 +1,5 @@
+import { escapeHtml } from './html'
+
 interface FamilyApplicationData {
   applicant: {
     name_bn: string
@@ -27,11 +29,7 @@ interface FamilyApplicationData {
   applicationId?: string
 }
 
-const esc = (value: unknown) =>
-  String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
+const esc = escapeHtml
 
 const toBnDigits = (value: number) =>
   String(value).replace(/\d/g, (digit) => '0123456789'.includes(digit) ? '০১২৩৪৫৬৭৮৯'[Number(digit)] : digit)

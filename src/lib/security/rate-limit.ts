@@ -97,4 +97,13 @@ export const RATE_LIMITS = {
   refresh: { limit: 60, windowMs: 15 * 60_000 },
   /** Public certificate verification — the scraping surface. */
   verify: { limit: 30, windowMs: 60_000 },
+  /**
+   * Authenticated writes, keyed per user rather than per IP.
+   *
+   * Deliberately generous. This is not a defence against a determined insider;
+   * it is a ceiling that turns a runaway script or a stolen session into a slow
+   * problem rather than thousands of ledger rows a minute. A clerk working
+   * quickly does not come near 120 mutations in a minute.
+   */
+  write: { limit: 120, windowMs: 60_000 },
 } as const satisfies Record<string, RateLimitOptions>

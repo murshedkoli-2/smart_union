@@ -1,6 +1,7 @@
 import mongoose from 'mongoose'
 import Cashbook from '@/models/Cashbook'
 import type { JwtAccessPayload } from '@/types/auth.types'
+import { clampPagination } from '@/lib/utils/pagination'
 
 // ── List Entries ──────────────────────────────────────────────────────────────
 
@@ -14,7 +15,8 @@ export async function listEntries(
   },
   actor: JwtAccessPayload,
 ) {
-  const { fiscal_year, source, entry_type, page = 1, limit = 20 } = query
+  const { fiscal_year, source, entry_type } = query
+  const { page, limit } = clampPagination(query)
 
   const filter: Record<string, unknown> = {}
   if (fiscal_year) filter.fiscal_year = fiscal_year

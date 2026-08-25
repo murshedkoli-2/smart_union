@@ -10,6 +10,7 @@ import {
 } from '@/lib/utils/errors'
 import { createAuditLog } from './audit-log.service'
 import type { JwtAccessPayload } from '@/types/auth.types'
+import { clampPagination } from '@/lib/utils/pagination'
 
 // ── Create Citizen ────────────────────────────────────────────────────────────
 
@@ -100,7 +101,8 @@ export async function listCitizens(
   },
   _actor: JwtAccessPayload,
 ) {
-  const { ward_no, status, search, page = 1, limit = 20 } = query
+  const { ward_no, status, search } = query
+  const { page, limit } = clampPagination(query)
 
   const filter: Record<string, unknown> = {}
   if (ward_no) filter['address.ward_no'] = ward_no
