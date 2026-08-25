@@ -54,3 +54,53 @@ export interface CreateCitizenDto {
   marital_status?: MaritalStatus
   education_level?: EducationLevel
 }
+
+/**
+ * A citizen as the detail screen receives it: the create DTO plus the fields
+ * the server adds. Declared here rather than inline in the page so the detail
+ * page, the list view and the certificate modal agree on one shape.
+ */
+export interface CitizenRecord extends CreateCitizenDto {
+  _id: string
+  status: string
+  approved_by?: { name: string }
+  approved_at?: string
+  createdAt: string
+}
+
+export interface CitizenCertificate {
+  _id: string
+  certificate_no: string
+  certificate_type: string
+  language: string
+  status: string
+  fiscal_year: string
+  createdAt: string
+}
+
+export interface CitizenTaxRecord {
+  _id: string
+  holding_no: string
+  fiscal_year: string
+  amount: number
+  status: string
+  payment_id?: string
+  paid_at: string | null
+  createdAt: string
+}
+
+export interface CitizenTaxData {
+  citizen_id: string
+  /** Null until the first payment generates one. */
+  holding_no: string | null
+  taxes: CitizenTaxRecord[]
+}
+
+export interface CitizenWarishSummary {
+  _id: string
+  application_type?: 'warish' | 'family_certificate'
+  deceased_name_bn: string
+  deceased_name_en: string
+  status: string
+  createdAt: string
+}

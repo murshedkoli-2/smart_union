@@ -1,132 +1,90 @@
 'use client'
 
+/**
+ * Citizen detail: profile, certificates, holding tax and warish applications.
+ *
+ * The page owns the tab state and the four fetches; each tab draws itself, and
+ * the tax workflow lives in useCitizenTax.
+ */
 import { useState } from 'react'
 import toast from 'react-hot-toast'
 import { useParams, useRouter } from 'next/navigation'
 import CitizenRegistrationForm from '@/components/forms/CitizenRegistrationForm'
 import IssueCertificateModal from '@/components/certificates/IssueCertificateModal'
 import WarishCreateModal, { type WarishApplicationType } from '@/components/warish/WarishCreateModal'
-import Modal from '@/components/ui/Modal'
 import StatusBadge from '@/components/ui/StatusBadge'
 import DataTable, { Column } from '@/components/ui/DataTable'
 import { useApi } from '@/hooks/useApi'
 import { apiCall } from '@/lib/utils/api-client'
-import { downloadHtmlAsPdf } from '@/lib/utils/html-to-pdf'
 import { useUser, hasPermission } from '@/hooks/useUser'
 import { PERMISSIONS } from '@/constants/permissions'
+import type {
+  CitizenCertificate,
+  CitizenRecord,
+  CitizenTaxData,
+  CitizenWarishSummary,
+} from '@/types/citizen.types'
+import ProfileTab from './ProfileTab'
+import HoldingTaxTab from './HoldingTaxTab'
+import { useCitizenTax } from './useCitizenTax'
 
-interface Address {
-  village_bn: string
-  village_en: string
-  post_office_bn: string
-  post_office_en: string
-  thana_bn: string
-  thana_en: string
-  district_bn: string
-  district_en: string
-  ward_no: number
+type Tab = 'profile' | 'documents' | 'holding_tax' | 'warish'
+
+const TAB_LABELS: Record<Tab, string> = {
+  profile: 'Profile',
+  documents: 'Certificates',
+  holding_tax: 'Holding Tax',
+  warish: 'Warish',
 }
 
-interface Citizen {
-  _id: string
-  name_bn: string
-  name_en: string
-  father_name_bn: string
-  father_name_en: string
-  mother_name_bn: string
-  mother_name_en: string
-  spouse_name_bn?: string
-  spouse_name_en?: string
-  date_of_birth: string
-  gender: string
-  nid_no?: string
-  birth_cert_no?: string
-  mobile: string
-  address: Address
-  permanent_address?: Address
-  housing_info?: {
-    house_type?: string
-    ownership_type?: string
-    total_rooms?: number
-  }
-  financial_info?: {
-    annual_income?: number
-    occupation?: string
-    land_owned_dec?: number
-  }
-  status: string
-  approved_by?: { name: string }
-  approved_at?: string
-  createdAt: string
-}
+const PLUS_ICON = (
+  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+  </svg>
+)
 
-interface Certificate {
-  _id: string
-  certificate_no: string
-  certificate_type: string
-  language: string
-  status: string
-  fiscal_year: string
-  createdAt: string
-}
+const viewLink = (href: string) => (
+  <a href={href} className="rounded border border-gray-200 px-2 py-1 text-xs text-gray-600 hover:bg-gray-50">
+    View
+  </a>
+)
 
-interface TaxRecord {
-  _id: string
-  holding_no: string
-  fiscal_year: string
-  amount: number
-  status: string
-  payment_id?: string
-  paid_at: string | null
-  createdAt: string
-}
+const CERTIFICATE_COLUMNS: Column[] = [
+  { key: 'certificate_no', label: 'Cert No' },
+  { key: 'language', label: 'Language', render: (value) => (value === 'bn' ? 'বাংলা' : 'English') },
+  { key: 'certificate_type', label: 'Type' },
+  { key: 'status', label: 'Status', render: (value) => <StatusBadge status={value} /> },
+  { key: 'fiscal_year', label: 'Fiscal Year' },
+  { key: '_id', label: 'Action', render: (value) => viewLink(`/certificates/${value}`) },
+]
 
-interface CitizenTaxData {
-  citizen_id: string
-  holding_no: string | null
-  taxes: TaxRecord[]
-}
-
-interface Heir {
-  name_bn: string
-  name_en: string
-  relation: string
-  birth_date: string
-  nid_no: string
-}
-
-interface WarishApplication {
-  _id: string
-  application_type?: 'warish' | 'family_certificate'
-  deceased_name_bn: string
-  deceased_name_en: string
-  status: string
-  createdAt: string
-  heirs: Heir[]
-}
-
+const WARISH_COLUMNS: Column[] = [
+  {
+    key: 'deceased_name_bn',
+    label: 'Subject',
+    render: (_, row) =>
+      row.application_type === 'family_certificate' ? 'Family Certificate' : row.deceased_name_bn,
+  },
+  { key: 'status', label: 'Status', render: (value) => <StatusBadge status={value} /> },
+  {
+    key: 'createdAt',
+    label: 'Applied Date',
+    render: (value) => new Date(value).toLocaleDateString('en-BD'),
+  },
+  { key: '_id', label: 'Action', render: (value) => viewLink(`/warish/${value}`) },
+]
 
 export default function CitizenDetailPage() {
   const currentUser = useUser()
   const { id } = useParams<{ id: string }>()
   const router = useRouter()
-  const [activeTab, setActiveTab] = useState<'profile' | 'documents' | 'holding_tax' | 'warish'>('profile')
-  const [showIssueCert, setShowIssueCert] = useState(false)
 
-  // Warish create flow — state and modal live in WarishCreateModal.
+  const [activeTab, setActiveTab] = useState<Tab>('profile')
+  const [showIssueCert, setShowIssueCert] = useState(false)
   const [warishCreateType, setWarishCreateType] = useState<WarishApplicationType | null>(null)
 
-  // Holding tax state
-  const [showAssessTax, setShowAssessTax] = useState(false)
-  const [assessingTax, setAssessingTax] = useState(false)
-  const [taxForm, setTaxForm] = useState({ fiscal_year: '2025-2026', amount: '' })
-  const [payingTaxId, setPayingTaxId] = useState<string | null>(null)
-  const [paying, setPaying] = useState(false)
-
-  const FISCAL_YEARS = ['2023-2024', '2024-2025', '2025-2026', '2026-2027']
-
-  const { data: citizen, loading, error, refetch } = useApi<Citizen>(`/api/citizens/${id}`)
-  const { data: certs, loading: certsLoading, refetch: refetchCerts } = useApi<Certificate[]>(
+  const { data: citizen, loading, error, refetch } = useApi<CitizenRecord>(`/api/citizens/${id}`)
+  const { data: certs, loading: certsLoading, refetch: refetchCerts } = useApi<CitizenCertificate[]>(
     `/api/certificates?citizen_id=${id}`,
     [id],
   )
@@ -134,103 +92,20 @@ export default function CitizenDetailPage() {
     `/api/citizens/${id}/tax`,
     [id],
   )
-  const { data: warishData, loading: warishLoading, refetch: refetchWarish } = useApi<{ applications: WarishApplication[] }>(
-    `/api/warish?applicant_citizen_id=${id}&limit=50`,
-    [id],
-  )
+  const { data: warishData, loading: warishLoading, refetch: refetchWarish } = useApi<{
+    applications: CitizenWarishSummary[]
+  }>(`/api/warish?applicant_citizen_id=${id}&limit=50`, [id])
 
-  const handleApprove = async () => {
-    const res = await apiCall(`/api/citizens/${id}/approve`, { method: 'POST' })
+  const tax = useCitizenTax(id, refetchTax)
+
+  /** Approve and reject differ only in the path and the wording. */
+  const decide = async (action: 'approve' | 'reject') => {
+    const res = await apiCall(`/api/citizens/${id}/${action}`, { method: 'POST' })
     if (res.ok) {
-      toast.success('Citizen approved.')
+      toast.success(`Citizen ${action === 'approve' ? 'approved' : 'rejected'}.`)
       refetch()
     } else {
-      toast.error('Failed to approve.')
-    }
-  }
-
-  const handleReject = async () => {
-    const res = await apiCall(`/api/citizens/${id}/reject`, { method: 'POST' })
-    if (res.ok) {
-      toast.success('Citizen rejected.')
-      refetch()
-    } else {
-      toast.error('Failed to reject.')
-    }
-  }
-
-  const handleAssessTax = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setAssessingTax(true)
-    const res = await apiCall(`/api/citizens/${id}/tax`, {
-      method: 'POST',
-      body: JSON.stringify({ fiscal_year: taxForm.fiscal_year, amount: Number(taxForm.amount) }),
-    })
-    setAssessingTax(false)
-    if (res.ok) {
-      toast.success('Holding tax assessed successfully.')
-      setShowAssessTax(false)
-      setTaxForm({ fiscal_year: '2025-2026', amount: '' })
-      refetchTax()
-    } else {
-      const d = await res.json()
-      toast.error(d.message ?? 'Failed to assess holding tax.')
-    }
-  }
-
-  const handlePayTax = async (taxId: string) => {
-    setPayingTaxId(taxId)
-    setPaying(true)
-    try {
-      const res = await apiCall(`/api/citizens/${id}/tax/${taxId}/pay`, { method: 'POST' })
-      if (res.ok) {
-        const data = await res.json()
-        toast.success('Holding tax paid successfully.')
-        refetchTax()
-
-        // Download PDF receipt
-        if (data.data?.payment?._id) {
-          await downloadTaxReceipt(data.data.payment._id)
-        }
-      } else {
-        const d = await res.json().catch(() => ({ message: 'Failed to pay holding tax.' }))
-        toast.error(d.message ?? 'Failed to pay holding tax.')
-      }
-    } catch {
-      toast.error('Failed to pay holding tax. Please try again.')
-    } finally {
-      setPaying(false)
-      setPayingTaxId(null)
-    }
-  }
-
-  const downloadTaxReceipt = async (paymentId: string) => {
-    try {
-      // Fetch receipt data
-      const res = await apiCall(`/api/payments/${paymentId}/tax-receipt`, { method: 'GET' })
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({ message: 'Failed to fetch receipt data' }))
-        toast.error(errorData.message || 'Failed to fetch receipt data.')
-        return
-      }
-
-      const { data } = await res.json()
-
-      const { generateTaxReceiptHtml } = await import('@/lib/utils/tax-receipt-render')
-      const receiptHtml = generateTaxReceiptHtml(data)
-
-      const receiptNo = data.payment?.receipt_no || 'receipt'
-      // 'contain' so the receipt is never cropped — a clipped bottom would cut
-      // off the amount, which is the part that matters on a payment receipt.
-      await downloadHtmlAsPdf(receiptHtml, `holding-tax-receipt-${receiptNo}.pdf`, {
-        fit: 'contain',
-        quality: 0.95,
-        containerStyle: 'margin:0; padding:0;',
-      })
-    } catch (error) {
-      console.error('Failed to generate receipt PDF:', error)
-      const errorMessage = error instanceof Error ? error.message : 'Failed to generate receipt PDF.'
-      toast.error(errorMessage)
+      toast.error(`Failed to ${action}.`)
     }
   }
 
@@ -244,16 +119,23 @@ export default function CitizenDetailPage() {
   }
 
   if (error || !citizen) {
+    // A citizen who has signed up but has no citizen record yet lands here via
+    // /citizens/profile; give them the registration form rather than an error.
     if (id === 'profile' && currentUser?.role === 'citizen') {
       return (
         <div className="p-6 max-w-4xl mx-auto space-y-6">
           <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
             <h1 className="text-xl font-bold text-gray-900 mb-2">Setup Your Profile</h1>
-            <p className="text-sm text-gray-500 mb-6">Please complete your citizen profile to access union services.</p>
-            <CitizenRegistrationForm onSuccess={() => {
-              toast.success('Profile setup successfully.')
-              refetch()
-            }} onCancel={() => router.push('/dashboard')} />
+            <p className="text-sm text-gray-500 mb-6">
+              Please complete your citizen profile to access union services.
+            </p>
+            <CitizenRegistrationForm
+              onSuccess={() => {
+                toast.success('Profile setup successfully.')
+                refetch()
+              }}
+              onCancel={() => router.push('/dashboard')}
+            />
           </div>
         </div>
       )
@@ -268,42 +150,6 @@ export default function CitizenDetailPage() {
     )
   }
 
-  const certCols: Column[] = [
-    { key: 'certificate_no', label: 'Cert No' },
-    { key: 'language', label: 'Language', render: (value) => value === 'bn' ? 'বাংলা' : 'English' },
-    { key: 'certificate_type', label: 'Type' },
-    { key: 'status', label: 'Status', render: (value) => <StatusBadge status={value} /> },
-    { key: 'fiscal_year', label: 'Fiscal Year' },
-    {
-      key: '_id',
-      label: 'Action',
-      render: (value) => (
-        <a href={`/certificates/${value}`} className="rounded border border-gray-200 px-2 py-1 text-xs text-gray-600 hover:bg-gray-50">
-          View
-        </a>
-      ),
-    },
-  ]
-
-  const warishCols: Column[] = [
-    {
-      key: 'deceased_name_bn',
-      label: 'Subject',
-      render: (_, row) => row.application_type === 'family_certificate' ? 'Family Certificate' : row.deceased_name_bn,
-    },
-    { key: 'status', label: 'Status', render: (value) => <StatusBadge status={value} /> },
-    { key: 'createdAt', label: 'Applied Date', render: (value) => new Date(value).toLocaleDateString('en-BD') },
-    {
-      key: '_id',
-      label: 'Action',
-      render: (value) => (
-        <a href={`/warish/${value}`} className="rounded border border-gray-200 px-2 py-1 text-xs text-gray-600 hover:bg-gray-50">
-          View
-        </a>
-      ),
-    },
-  ]
-
   return (
     <div className="space-y-4 p-4 sm:space-y-5 sm:p-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -317,19 +163,24 @@ export default function CitizenDetailPage() {
           {citizen.status === 'pending' && hasPermission(currentUser, PERMISSIONS.CITIZEN_APPROVE) && (
             <>
               <button
-                onClick={handleApprove}
+                onClick={() => decide('approve')}
                 className="rounded-lg bg-green-700 px-4 py-2 text-sm font-medium text-white hover:bg-green-800"
               >
                 Approve
               </button>
               <button
-                onClick={handleReject}
+                onClick={() => decide('reject')}
                 className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
               >
                 Reject
               </button>
             </>
           )}
+          {/*
+            Delete stays visible but inert. DELETE /api/citizens/[id] works
+            (soft delete via deleted_at); enabling this needs a deliberate
+            decision about who may delete a citizen record.
+          */}
           <button
             disabled
             className="cursor-not-allowed rounded-lg border border-red-200 bg-gray-100 px-4 py-2 text-sm font-medium text-red-400 opacity-60"
@@ -352,7 +203,7 @@ export default function CitizenDetailPage() {
 
       <div className="border-b border-gray-200">
         <nav className="flex gap-1 overflow-x-auto sm:gap-4">
-          {(['profile', 'documents', 'holding_tax', 'warish'] as const).map((tab) => (
+          {(Object.keys(TAB_LABELS) as Tab[]).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -362,212 +213,13 @@ export default function CitizenDetailPage() {
                   : 'border-transparent text-gray-500 hover:text-gray-700'
               }`}
             >
-              {tab === 'documents' ? 'Certificates' : tab === 'holding_tax' ? 'Holding Tax' : tab === 'warish' ? 'Warish' : 'Profile'}
+              {TAB_LABELS[tab]}
             </button>
           ))}
         </nav>
       </div>
 
-      {activeTab === 'profile' && (
-        <div className="space-y-6 rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
-          <div>
-            <h3 className="mb-3 border-b border-gray-100 pb-2 text-sm font-semibold text-gray-800">
-              ব্যক্তিগত তথ্য / Personal Information
-            </h3>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
-              {[
-                { label: 'নাম (বাংলা)', value: citizen.name_bn },
-                { label: 'Name (English)', value: citizen.name_en },
-                { label: 'পিতার নাম (বাংলা)', value: citizen.father_name_bn || '—' },
-                { label: 'Father Name (EN)', value: citizen.father_name_en || '—' },
-                { label: 'মাতার নাম (বাংলা)', value: citizen.mother_name_bn || '—' },
-                { label: 'Mother Name (EN)', value: citizen.mother_name_en || '—' },
-                ...(citizen.spouse_name_bn || citizen.spouse_name_en
-                  ? [
-                      { label: 'স্বামী/স্ত্রী (বাংলা)', value: citizen.spouse_name_bn || '—' },
-                      { label: 'Spouse (EN)', value: citizen.spouse_name_en || '—' },
-                    ]
-                  : []),
-                {
-                  label: 'জন্ম তারিখ / DOB',
-                  value: citizen.date_of_birth ? new Date(citizen.date_of_birth).toLocaleDateString('en-BD') : '—',
-                },
-                {
-                  label: 'লিঙ্গ / Gender',
-                  value:
-                    citizen.gender === 'male'
-                      ? 'পুরুষ / Male'
-                      : citizen.gender === 'female'
-                        ? 'মহিলা / Female'
-                        : 'অন্যান্য / Other',
-                },
-                { label: 'মোবাইল / Mobile', value: citizen.mobile || '—' },
-              ].map(({ label, value }) => (
-                <div key={label}>
-                  <p className="mb-0.5 text-xs font-medium uppercase tracking-wide text-gray-400">{label}</p>
-                  <p className="text-sm text-gray-800">{value}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {(citizen.nid_no || citizen.birth_cert_no) && (
-            <div>
-              <h3 className="mb-3 border-b border-gray-100 pb-2 text-sm font-semibold text-gray-800">
-                পরিচয়পত্র / Identification
-              </h3>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
-                {citizen.nid_no && (
-                  <div>
-                    <p className="mb-0.5 text-xs font-medium uppercase tracking-wide text-gray-400">জাতীয় পরিচয়পত্র / NID</p>
-                    <p className="text-sm text-gray-800">{citizen.nid_no}</p>
-                  </div>
-                )}
-                {citizen.birth_cert_no && (
-                  <div>
-                    <p className="mb-0.5 text-xs font-medium uppercase tracking-wide text-gray-400">জন্ম নিবন্ধন / Birth Cert</p>
-                    <p className="text-sm text-gray-800">{citizen.birth_cert_no}</p>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          <div>
-            <h3 className="mb-3 border-b border-gray-100 pb-2 text-sm font-semibold text-gray-800">
-              বর্তমান ঠিকানা / Present Address
-            </h3>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
-              {[
-                { label: 'গ্রাম (বাংলা)', value: citizen.address?.village_bn || '—' },
-                { label: 'Village (EN)', value: citizen.address?.village_en || '—' },
-                { label: 'ডাকঘর (বাংলা)', value: citizen.address?.post_office_bn || '—' },
-                { label: 'Post Office (EN)', value: citizen.address?.post_office_en || '—' },
-                { label: 'থানা (বাংলা)', value: citizen.address?.thana_bn || '—' },
-                { label: 'Thana (EN)', value: citizen.address?.thana_en || '—' },
-                { label: 'জেলা (বাংলা)', value: citizen.address?.district_bn || '—' },
-                { label: 'District (EN)', value: citizen.address?.district_en || '—' },
-                { label: 'ওয়ার্ড নং / Ward No', value: citizen.address?.ward_no || '—' },
-              ].map(({ label, value }) => (
-                <div key={label}>
-                  <p className="mb-0.5 text-xs font-medium uppercase tracking-wide text-gray-400">{label}</p>
-                  <p className="text-sm text-gray-800">{value}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {citizen.permanent_address?.village_bn && (
-            <div>
-              <h3 className="mb-3 border-b border-gray-100 pb-2 text-sm font-semibold text-gray-800">
-                স্থায়ী ঠিকানা / Permanent Address
-              </h3>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
-                {[
-                  { label: 'গ্রাম (বাংলা)', value: citizen.permanent_address?.village_bn || '—' },
-                  { label: 'Village (EN)', value: citizen.permanent_address?.village_en || '—' },
-                  { label: 'ডাকঘর (বাংলা)', value: citizen.permanent_address?.post_office_bn || '—' },
-                  { label: 'Post Office (EN)', value: citizen.permanent_address?.post_office_en || '—' },
-                  { label: 'থানা (বাংলা)', value: citizen.permanent_address?.thana_bn || '—' },
-                  { label: 'Thana (EN)', value: citizen.permanent_address?.thana_en || '—' },
-                  { label: 'জেলা (বাংলা)', value: citizen.permanent_address?.district_bn || '—' },
-                  { label: 'District (EN)', value: citizen.permanent_address?.district_en || '—' },
-                  { label: 'ওয়ার্ড নং / Ward No', value: citizen.permanent_address?.ward_no || '—' },
-                ].map(({ label, value }) => (
-                  <div key={label}>
-                    <p className="mb-0.5 text-xs font-medium uppercase tracking-wide text-gray-400">{label}</p>
-                    <p className="text-sm text-gray-800">{value}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {(citizen.housing_info?.house_type || citizen.housing_info?.ownership_type || citizen.housing_info?.total_rooms) && (
-            <div>
-              <h3 className="mb-3 border-b border-gray-100 pb-2 text-sm font-semibold text-gray-800">
-                বাসস্থানের তথ্য / Housing Information
-              </h3>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
-                {citizen.housing_info?.house_type && (
-                  <div>
-                    <p className="mb-0.5 text-xs font-medium uppercase tracking-wide text-gray-400">ঘরের ধরন / House Type</p>
-                    <p className="text-sm text-gray-800">{citizen.housing_info.house_type}</p>
-                  </div>
-                )}
-                {citizen.housing_info?.ownership_type && (
-                  <div>
-                    <p className="mb-0.5 text-xs font-medium uppercase tracking-wide text-gray-400">মালিকানা / Ownership</p>
-                    <p className="text-sm text-gray-800">{citizen.housing_info.ownership_type}</p>
-                  </div>
-                )}
-                {citizen.housing_info?.total_rooms && (
-                  <div>
-                    <p className="mb-0.5 text-xs font-medium uppercase tracking-wide text-gray-400">কক্ষ সংখ্যা / Rooms</p>
-                    <p className="text-sm text-gray-800">{citizen.housing_info.total_rooms}</p>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {(citizen.financial_info?.annual_income || citizen.financial_info?.occupation || citizen.financial_info?.land_owned_dec) && (
-            <div>
-              <h3 className="mb-3 border-b border-gray-100 pb-2 text-sm font-semibold text-gray-800">
-                আর্থিক তথ্য / Financial Information
-              </h3>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
-                {citizen.financial_info?.annual_income && (
-                  <div>
-                    <p className="mb-0.5 text-xs font-medium uppercase tracking-wide text-gray-400">বার্ষিক আয় / Annual Income</p>
-                    <p className="text-sm text-gray-800">৳ {citizen.financial_info.annual_income.toLocaleString()}</p>
-                  </div>
-                )}
-                {citizen.financial_info?.occupation && (
-                  <div>
-                    <p className="mb-0.5 text-xs font-medium uppercase tracking-wide text-gray-400">পেশা / Occupation</p>
-                    <p className="text-sm text-gray-800">{citizen.financial_info.occupation}</p>
-                  </div>
-                )}
-                {citizen.financial_info?.land_owned_dec && (
-                  <div>
-                    <p className="mb-0.5 text-xs font-medium uppercase tracking-wide text-gray-400">জমির পরিমাণ / Land</p>
-                    <p className="text-sm text-gray-800">{citizen.financial_info.land_owned_dec} শতক</p>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          <div>
-            <h3 className="mb-3 border-b border-gray-100 pb-2 text-sm font-semibold text-gray-800">
-              অন্যান্য তথ্য / Other Information
-            </h3>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
-              <div>
-                <p className="mb-0.5 text-xs font-medium uppercase tracking-wide text-gray-400">অবস্থা / Status</p>
-                <StatusBadge status={citizen.status} />
-              </div>
-              <div>
-                <p className="mb-0.5 text-xs font-medium uppercase tracking-wide text-gray-400">নিবন্ধনের তারিখ / Registered</p>
-                <p className="text-sm text-gray-800">{new Date(citizen.createdAt).toLocaleDateString('en-BD')}</p>
-              </div>
-              {citizen.approved_by && (
-                <div>
-                  <p className="mb-0.5 text-xs font-medium uppercase tracking-wide text-gray-400">অনুমোদনকারী / Approved By</p>
-                  <p className="text-sm text-gray-800">{citizen.approved_by.name}</p>
-                </div>
-              )}
-              {citizen.approved_at && (
-                <div>
-                  <p className="mb-0.5 text-xs font-medium uppercase tracking-wide text-gray-400">অনুমোদনের তারিখ / Approved At</p>
-                  <p className="text-sm text-gray-800">{new Date(citizen.approved_at).toLocaleDateString('en-BD')}</p>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      {activeTab === 'profile' && <ProfileTab citizen={citizen} />}
 
       {activeTab === 'documents' && (
         <div className="space-y-4">
@@ -577,15 +229,13 @@ export default function CitizenDetailPage() {
                 onClick={() => setShowIssueCert(true)}
                 className="flex items-center gap-2 rounded-lg bg-green-700 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-green-800"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                </svg>
+                {PLUS_ICON}
                 Issue New Certificate
               </button>
             )}
           </div>
           <DataTable
-            columns={certCols}
+            columns={CERTIFICATE_COLUMNS}
             data={certs ?? []}
             loading={certsLoading}
             emptyMessage="No certificates found for this citizen."
@@ -594,112 +244,17 @@ export default function CitizenDetailPage() {
       )}
 
       {activeTab === 'holding_tax' && (
-        <div className="space-y-4">
-          {/* Holding Info Card */}
-          <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-sm font-semibold text-gray-800">হোল্ডিং তথ্য / Holding Information</h3>
-                <div className="mt-2 flex items-center gap-4">
-                  <div>
-                    <p className="text-xs text-gray-500">হোল্ডিং নং / Holding No</p>
-                    <p className="text-lg font-bold text-green-700">
-                      {taxData?.holding_no ?? <span className="text-gray-400">Not Generated</span>}
-                    </p>
-                  </div>
-                  {taxData?.holding_no && (
-                    <div className="rounded bg-green-50 px-2 py-1 text-xs text-green-700">
-                      First payment generates holding number
-                    </div>
-                  )}
-                </div>
-              </div>
-              {hasPermission(currentUser, PERMISSIONS.TAX_CREATE) && (
-                <button
-                  onClick={() => setShowAssessTax(true)}
-                  className="flex items-center gap-2 rounded-lg bg-green-700 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-green-800"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                  </svg>
-                  Assess Holding Tax
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Tax Records Table */}
-          <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
-            <h3 className="mb-4 text-sm font-semibold text-gray-800">হোল্ডিং ট্যাক্স রেকর্ড / Holding Tax Records</h3>
-            {taxLoading ? (
-              <div className="h-32 animate-pulse rounded bg-gray-100" />
-            ) : (taxData?.taxes?.length ?? 0) === 0 ? (
-              <div className="py-8 text-center text-sm text-gray-500">No holding tax records found.</div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead>
-                    <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                        Fiscal Year
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                        Amount
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                        Status
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                        Paid At
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                        Action
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100 bg-white">
-                    {taxData?.taxes.map((tax) => (
-                      <tr key={tax._id}>
-                        <td className="whitespace-nowrap px-4 py-3 text-sm text-gray-900">{tax.fiscal_year}</td>
-                        <td className="whitespace-nowrap px-4 py-3 text-sm font-medium text-gray-900">
-                          ৳ {tax.amount.toLocaleString()}
-                        </td>
-                        <td className="whitespace-nowrap px-4 py-3 text-sm">
-                          <StatusBadge status={tax.status} />
-                        </td>
-                        <td className="whitespace-nowrap px-4 py-3 text-sm text-gray-500">
-                          {tax.paid_at ? new Date(tax.paid_at).toLocaleDateString('en-BD') : '—'}
-                        </td>
-                        <td className="whitespace-nowrap px-4 py-3 text-sm">
-                          {tax.status === 'unpaid' && hasPermission(currentUser, PERMISSIONS.TAX_COLLECT) && (
-                            <button
-                              onClick={() => handlePayTax(tax._id)}
-                              disabled={paying && payingTaxId === tax._id}
-                              className="rounded border border-green-200 bg-green-50 px-3 py-1 text-xs font-medium text-green-700 hover:bg-green-100 disabled:opacity-50"
-                            >
-                              {paying && payingTaxId === tax._id ? 'Processing...' : 'Pay Now'}
-                            </button>
-                          )}
-                          {tax.status === 'paid' && tax.payment_id && (
-                            <button
-                              onClick={() => downloadTaxReceipt(tax.payment_id!)}
-                              className="rounded border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100"
-                            >
-                              Download Receipt
-                            </button>
-                          )}
-                          {tax.status === 'paid' && !tax.payment_id && (
-                            <span className="text-xs text-gray-400">Paid</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </div>
+        <HoldingTaxTab
+          taxData={taxData}
+          loading={taxLoading}
+          canAssess={hasPermission(currentUser, PERMISSIONS.TAX_CREATE)}
+          canCollect={hasPermission(currentUser, PERMISSIONS.TAX_COLLECT)}
+          assessing={tax.assessing}
+          payingTaxId={tax.payingTaxId}
+          onAssess={tax.assess}
+          onPay={tax.pay}
+          onDownloadReceipt={tax.downloadReceipt}
+        />
       )}
 
       {activeTab === 'warish' && (
@@ -711,21 +266,21 @@ export default function CitizenDetailPage() {
                   onClick={() => setWarishCreateType('warish')}
                   className="flex items-center gap-2 rounded-lg bg-green-700 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-green-800"
                 >
-                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                  {PLUS_ICON}
                   New Warish Application
                 </button>
                 <button
                   onClick={() => setWarishCreateType('family_certificate')}
                   className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
                 >
-                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                  {PLUS_ICON}
                   New Family Certificate
                 </button>
               </>
             )}
           </div>
           <DataTable
-            columns={warishCols}
+            columns={WARISH_COLUMNS}
             data={warishData?.applications ?? []}
             loading={warishLoading}
             emptyMessage="No warish applications found for this citizen."
@@ -744,67 +299,6 @@ export default function CitizenDetailPage() {
         }}
       />
 
-      {/*
-        The Delete Citizen modal was removed as unreachable dead code: nothing
-        ever called setShowDeleteModal(true), and its Delete button was
-        hardcoded `disabled`, so no user could reach or use it.
-
-        DELETE /api/citizens/[id] still exists and works (soft delete via
-        deleted_at). Re-enabling this needs a deliberate decision about who may
-        delete a citizen record — restore from git history if that is wanted.
-      */}
-
-      {/* Assess Holding Tax Modal */}
-      <Modal
-        open={showAssessTax}
-        onClose={() => { setShowAssessTax(false); setTaxForm({ fiscal_year: '2025-2026', amount: '' }) }}
-        title="Assess Holding Tax"
-        size="sm"
-      >
-        <form onSubmit={handleAssessTax} className="space-y-4">
-          <div>
-            <label className="mb-1 block text-xs font-medium text-gray-700">Fiscal Year *</label>
-            <select
-              required
-              value={taxForm.fiscal_year}
-              onChange={(e) => setTaxForm((f) => ({ ...f, fiscal_year: e.target.value }))}
-              className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-            >
-              {FISCAL_YEARS.map((y) => (
-                <option key={y} value={y}>{y}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-gray-700">Amount (৳) *</label>
-            <input
-              required
-              type="number"
-              min="0"
-              value={taxForm.amount}
-              onChange={(e) => setTaxForm((f) => ({ ...f, amount: e.target.value }))}
-              placeholder="Enter amount"
-              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-            />
-          </div>
-          <div className="flex justify-end gap-3 pt-2">
-            <button
-              type="button"
-              onClick={() => { setShowAssessTax(false); setTaxForm({ fiscal_year: '2025-2026', amount: '' }) }}
-              className="rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={assessingTax}
-              className="rounded-lg bg-green-700 px-4 py-2 text-sm font-medium text-white hover:bg-green-800 disabled:opacity-50"
-            >
-              {assessingTax ? 'Assessing...' : 'Assess Holding Tax'}
-            </button>
-          </div>
-        </form>
-      </Modal>
       <WarishCreateModal
         citizenId={id}
         citizen={{ name_bn: citizen.name_bn, name_en: citizen.name_en }}
@@ -812,7 +306,6 @@ export default function CitizenDetailPage() {
         onClose={() => setWarishCreateType(null)}
         onCreated={refetchWarish}
       />
-
     </div>
   )
 }
