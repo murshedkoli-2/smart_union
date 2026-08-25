@@ -13,7 +13,9 @@
     "migrate-soft-delete": "tsx scripts/migrate-soft-delete.ts",
     "clear-db": "tsx scripts/clear-db.ts",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "decrypt-pii": "tsx scripts/decrypt-pii.ts",
+    "reset-citizen-data": "tsx scripts/reset-citizen-data.ts"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
