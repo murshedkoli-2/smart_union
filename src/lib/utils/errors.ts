@@ -59,3 +59,9 @@ export class TooManyRequestsError extends AppError {
     this.retryAfter = retryAfter
   }
 }
+
+export class BadGatewayError extends AppError {
+  constructor(message = 'Upstream service failed') {
+    super(message, 502)
+  }
+}
