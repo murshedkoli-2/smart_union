@@ -10,6 +10,7 @@
     "seed": "tsx scripts/seed.ts",
     "fix-indexes": "tsx scripts/fix-indexes.ts",
     "backfill-verification-tokens": "tsx scripts/backfill-verification-tokens.ts",
+    "backfill-approved-citizen-status": "tsx scripts/backfill-approved-citizen-status.ts",
     "migrate-soft-delete": "tsx scripts/migrate-soft-delete.ts",
     "clear-db": "tsx scripts/clear-db.ts",
     "test": "vitest run",
@@ -18,6 +19,7 @@
     "reset-citizen-data": "tsx scripts/reset-citizen-data.ts"
   },
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "bcryptjs": "^3.0.3",
     "html2canvas": "^1.4.1",
     "jsonwebtoken": "^9.0.3",
