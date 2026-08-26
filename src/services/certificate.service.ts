@@ -3,7 +3,7 @@ import Certificate from '@/models/Certificate'
 import CertificateTemplate from '@/models/CertificateTemplate'
 import Citizen from '@/models/Citizen'
 import '@/models/Payment'
-import { CreateCertificateSchema } from '@/lib/utils/validators'
+import { CreateCertificateSchema, DynamicFieldsSchema } from '@/lib/utils/validators'
 import {
   NotFoundError,
   ValidationError,
@@ -442,7 +442,6 @@ export async function listTemplates(
     templates: templates.map((template) => ({
       ...template,
       body_template: normalizeCertificateTemplateBody(template.body_template),
-      dynamic_fields: [],
     })),
     total,
     page,
@@ -457,6 +456,11 @@ export async function createTemplate(dto: unknown, actor: JwtAccessPayload) {
 
   if (!body.name || !body.language || !body.body_template) {
     throw new ValidationError('Missing required fields: name, language, body_template')
+  }
+
+  const dynamicFieldsResult = DynamicFieldsSchema.safeParse(body.dynamic_fields ?? [])
+  if (!dynamicFieldsResult.success) {
+    throw new ValidationError('Invalid dynamic fields', dynamicFieldsResult.error.flatten().fieldErrors)
   }
 
   const normalizedBody = normalizeCertificateTemplateBody(String(body.body_template))
@@ -478,7 +482,7 @@ export async function createTemplate(dto: unknown, actor: JwtAccessPayload) {
     certificate_category: category as CertificateTypeCode,
     language,
     body_template: normalizedBody,
-    dynamic_fields: [],
+    dynamic_fields: dynamicFieldsResult.data,
     fee: Number(body.fee ?? 0),
     is_active: body.is_active !== undefined ? Boolean(body.is_active) : true,
     created_by: new mongoose.Types.ObjectId(actor.sub),
@@ -505,7 +509,6 @@ export async function getTemplateById(id: string, _actor: JwtAccessPayload) {
   return {
     ...template,
     body_template: normalizeCertificateTemplateBody(template.body_template),
-    dynamic_fields: [],
   }
 }
 
@@ -520,10 +523,18 @@ export async function updateTemplate(
   if (!template) throw new NotFoundError('Certificate template not found')
 
   const allowedFields = [
-    'name', 'language', 'body_template', 'dynamic_fields', 'is_active', 'fee',
+    'name', 'language', 'body_template', 'dynamic_fields', 'template_type', 'is_active', 'fee',
   ]
   const body = dto as Record<string, unknown>
   const before = template.toObject()
+
+  if (body.dynamic_fields !== undefined) {
+    const dynamicFieldsResult = DynamicFieldsSchema.safeParse(body.dynamic_fields)
+    if (!dynamicFieldsResult.success) {
+      throw new ValidationError('Invalid dynamic fields', dynamicFieldsResult.error.flatten().fieldErrors)
+    }
+    body.dynamic_fields = dynamicFieldsResult.data
+  }
 
   for (const field of allowedFields) {
     if (body[field] !== undefined) {
@@ -539,9 +550,6 @@ export async function updateTemplate(
   if (body.name !== undefined) {
     template.certificate_category = deriveTemplateCategory(String(body.name)) as CertificateTypeCode
   }
-
-  template.template_type = 'standard'
-  template.dynamic_fields = []
 
   await template.save()
 

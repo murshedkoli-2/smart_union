@@ -60,6 +60,17 @@ const AddressSchema = z.object({
   ward_no: z.number().int().min(1).max(9),
 })
 
+export const DynamicFieldSchema = z.object({
+  field_key: z.string().trim().min(1).regex(/^[a-z][a-z0-9_]*$/, 'field_key must be a lowercase snake_case identifier'),
+  field_label: z.string().trim().min(1),
+  field_type: z.enum(['text', 'date', 'number', 'select']),
+  options: z.array(z.string()).default([]),
+  required: z.boolean().default(false),
+  default_value: z.string().optional(),
+})
+
+export const DynamicFieldsSchema = z.array(DynamicFieldSchema).default([])
+
 export const CreateCitizenSchema = z.object({
   name_bn: z.string().min(2).max(100).trim(),
   name_en: z.string().min(2).max(100).trim(),
