@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import toast from 'react-hot-toast'
 import { useApi } from '@/hooks/useApi'
 import { apiCall } from '@/lib/utils/api-client'
@@ -11,12 +11,24 @@ import Modal from '@/components/ui/Modal'
 import { PERMISSIONS } from '@/constants/permissions'
 import RequirePermission from '@/components/auth/RequirePermission'
 
+type TemplateType = 'standard' | 'custom' | 'warish'
+
+interface DynamicField {
+  field_key: string
+  field_label: string
+  field_type: 'text' | 'date' | 'number' | 'select'
+  options: string[]
+  required: boolean
+}
+
 interface CertificateTemplate {
   _id: string
   name: string
   language: 'bn' | 'en'
+  template_type?: TemplateType
   body_template: string
   fee: number
+  dynamic_fields?: DynamicField[]
   created_by?: { name: string }
   createdAt: string
 }
@@ -26,8 +38,10 @@ type Language = 'bn' | 'en'
 interface FormState {
   name: string
   language: Language
+  template_type: TemplateType
   body_template: string
   fee: number
+  dynamic_fields: DynamicField[]
 }
 
 const BANGLA_CITIZENSHIP_TEXT =
@@ -36,8 +50,10 @@ const BANGLA_CITIZENSHIP_TEXT =
 const defaultForm: FormState = {
   name: '',
   language: 'bn',
+  template_type: 'standard',
   body_template: '',
   fee: 0,
+  dynamic_fields: [],
 }
 
 function isCitizenshipTemplate(name: string): boolean {
@@ -52,6 +68,28 @@ function CertificateTemplatesPageView() {
   const [editingTemplate, setEditingTemplate] = useState<CertificateTemplate | null>(null)
   const [form, setForm] = useState<FormState>({ ...defaultForm })
   const [saving, setSaving] = useState(false)
+  const [aiEnabled, setAiEnabled] = useState(false)
+  const [generating, setGenerating] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+
+    const checkAiStudio = async () => {
+      try {
+        const res = await apiCall('/api/system-settings')
+        const body = await res.json()
+        if (!cancelled) setAiEnabled(Boolean(body?.data?.ai_studio?.enabled))
+      } catch {
+        // ignore — Generate button simply stays hidden
+      }
+    }
+
+    void checkAiStudio()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const buildUrl = () => {
     const params = new URLSearchParams()
@@ -73,6 +111,35 @@ function CertificateTemplatesPageView() {
     return currentText
   }
 
+  const handleGenerate = async () => {
+    if (!form.name.trim()) {
+      toast.error('Enter a certificate name first.')
+      return
+    }
+    setGenerating(true)
+    const res = await apiCall('/api/ai/generate-template', {
+      method: 'POST',
+      body: JSON.stringify({
+        title: form.name,
+        template_type: form.template_type,
+        language: form.language,
+      }),
+    })
+    setGenerating(false)
+
+    const body = await res.json().catch(() => ({}))
+    if (res.ok) {
+      setForm((current) => ({
+        ...current,
+        body_template: body.data.body_template,
+        dynamic_fields: body.data.dynamic_fields,
+      }))
+      toast.success('Draft generated — review before saving.')
+    } else {
+      toast.error(body.message ?? 'Failed to generate template.')
+    }
+  }
+
   const handleOpenCreate = () => {
     setForm({ ...defaultForm })
     setEditingTemplate(null)
@@ -88,8 +155,10 @@ function CertificateTemplatesPageView() {
     setForm({
       name: template.name,
       language: template.language,
+      template_type: template.template_type ?? 'standard',
       body_template: bodyText,
       fee: template.fee ?? 0,
+      dynamic_fields: template.dynamic_fields ?? [],
     })
     setEditingTemplate(template)
     setShowCreate(true)
@@ -203,7 +272,19 @@ function CertificateTemplatesPageView() {
       >
         <form onSubmit={handleSubmit} className="space-y-5">
           <div>
-            <label className="mb-1 block text-xs font-medium text-gray-700">Certificate Name *</label>
+            <div className="mb-1 flex items-center justify-between">
+              <label className="block text-xs font-medium text-gray-700">Certificate Name *</label>
+              {aiEnabled && (
+                <button
+                  type="button"
+                  onClick={handleGenerate}
+                  disabled={generating}
+                  className="text-xs font-medium text-green-700 hover:underline disabled:opacity-50"
+                >
+                  {generating ? 'Generating...' : '✨ Generate with AI'}
+                </button>
+              )}
+            </div>
             <input
               type="text"
               required
@@ -242,6 +323,20 @@ function CertificateTemplatesPageView() {
           </div>
 
           <div>
+            <label className="mb-1 block text-xs font-medium text-gray-700">Template Type *</label>
+            <select
+              required
+              value={form.template_type}
+              onChange={(e) => setForm((current) => ({ ...current, template_type: e.target.value as TemplateType }))}
+              className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+            >
+              <option value="standard">Standard</option>
+              <option value="custom">Custom</option>
+              <option value="warish">Warish</option>
+            </select>
+          </div>
+
+          <div>
             <label className="mb-1 block text-xs font-medium text-gray-700">Certificate Fee (৳)</label>
             <input
               type="number"
@@ -265,6 +360,121 @@ function CertificateTemplatesPageView() {
               placeholder="Write the certificate text only. Nothing else."
               className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
             />
+          </div>
+
+          <div>
+            <div className="mb-2 flex items-center justify-between">
+              <label className="block text-xs font-medium text-gray-700">Dynamic Fields</label>
+              <button
+                type="button"
+                onClick={() =>
+                  setForm((current) => ({
+                    ...current,
+                    dynamic_fields: [
+                      ...current.dynamic_fields,
+                      { field_key: '', field_label: '', field_type: 'text', options: [], required: false },
+                    ],
+                  }))
+                }
+                className="text-xs font-medium text-green-700 hover:underline"
+              >
+                + Add Field
+              </button>
+            </div>
+            <div className="space-y-2">
+              {form.dynamic_fields.map((field, index) => (
+                <div key={index} className="flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 p-2">
+                  <input
+                    type="text"
+                    value={field.field_key}
+                    onChange={(e) => {
+                      const value = e.target.value
+                      setForm((current) => ({
+                        ...current,
+                        dynamic_fields: current.dynamic_fields.map((f, i) => (i === index ? { ...f, field_key: value } : f)),
+                      }))
+                    }}
+                    placeholder="field_key"
+                    className="w-32 rounded border border-gray-200 px-2 py-1 text-xs"
+                  />
+                  <input
+                    type="text"
+                    value={field.field_label}
+                    onChange={(e) => {
+                      const value = e.target.value
+                      setForm((current) => ({
+                        ...current,
+                        dynamic_fields: current.dynamic_fields.map((f, i) => (i === index ? { ...f, field_label: value } : f)),
+                      }))
+                    }}
+                    placeholder="Label"
+                    className="w-40 rounded border border-gray-200 px-2 py-1 text-xs"
+                  />
+                  <select
+                    value={field.field_type}
+                    onChange={(e) => {
+                      const value = e.target.value as DynamicField['field_type']
+                      setForm((current) => ({
+                        ...current,
+                        dynamic_fields: current.dynamic_fields.map((f, i) => (i === index ? { ...f, field_type: value } : f)),
+                      }))
+                    }}
+                    className="rounded border border-gray-200 bg-white px-2 py-1 text-xs"
+                  >
+                    <option value="text">text</option>
+                    <option value="date">date</option>
+                    <option value="number">number</option>
+                    <option value="select">select</option>
+                  </select>
+                  {field.field_type === 'select' && (
+                    <input
+                      type="text"
+                      value={field.options.join(', ')}
+                      onChange={(e) => {
+                        const value = e.target.value
+                        setForm((current) => ({
+                          ...current,
+                          dynamic_fields: current.dynamic_fields.map((f, i) =>
+                            i === index ? { ...f, options: value.split(',').map((o) => o.trim()).filter(Boolean) } : f,
+                          ),
+                        }))
+                      }}
+                      placeholder="option1, option2"
+                      className="w-40 rounded border border-gray-200 px-2 py-1 text-xs"
+                    />
+                  )}
+                  <label className="flex items-center gap-1 text-xs text-gray-600">
+                    <input
+                      type="checkbox"
+                      checked={field.required}
+                      onChange={(e) => {
+                        const value = e.target.checked
+                        setForm((current) => ({
+                          ...current,
+                          dynamic_fields: current.dynamic_fields.map((f, i) => (i === index ? { ...f, required: value } : f)),
+                        }))
+                      }}
+                    />
+                    required
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setForm((current) => ({
+                        ...current,
+                        dynamic_fields: current.dynamic_fields.filter((_, i) => i !== index),
+                      }))
+                    }
+                    className="ml-auto text-xs text-red-600 hover:underline"
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+              {form.dynamic_fields.length === 0 && (
+                <p className="text-xs text-gray-400">No dynamic fields yet — add one, or generate with AI.</p>
+              )}
+            </div>
           </div>
 
           <div className="flex justify-end gap-3 border-t border-gray-100 pt-2">
