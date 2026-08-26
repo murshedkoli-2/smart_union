@@ -8,6 +8,11 @@ export interface IUnionMember {
   mobile?: string
 }
 
+export interface IAiStudioConfig {
+  gemini_api_key: string
+  enabled: boolean
+}
+
 export interface ISystemSettings extends Document {
   key: string
   union_name_bn: string
@@ -18,6 +23,7 @@ export interface ISystemSettings extends Document {
   address_bn: string
   address_en: string
   members: IUnionMember[]
+  ai_studio: IAiStudioConfig
   updated_by?: mongoose.Types.ObjectId | null
   createdAt: Date
   updatedAt: Date
@@ -34,6 +40,14 @@ const UnionMemberSchema = new Schema<IUnionMember>(
   { _id: false },
 )
 
+const AiStudioConfigSchema = new Schema<IAiStudioConfig>(
+  {
+    gemini_api_key: { type: String, default: '' },
+    enabled: { type: Boolean, default: false },
+  },
+  { _id: false },
+)
+
 const SystemSettingsSchema = new Schema<ISystemSettings>(
   {
     key: { type: String, required: true, unique: true, default: 'default' },
@@ -45,6 +59,7 @@ const SystemSettingsSchema = new Schema<ISystemSettings>(
     address_bn: { type: String, default: '', trim: true },
     address_en: { type: String, default: '', trim: true },
     members: { type: [UnionMemberSchema], default: [] },
+    ai_studio: { type: AiStudioConfigSchema, default: () => ({ gemini_api_key: '', enabled: false }) },
     updated_by: { type: Schema.Types.ObjectId, ref: 'User', default: null },
   },
   { timestamps: true },

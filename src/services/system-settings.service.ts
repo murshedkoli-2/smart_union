@@ -2,7 +2,43 @@ import mongoose from 'mongoose'
 import SystemSettings from '@/models/SystemSettings'
 import { ValidationError } from '@/lib/utils/errors'
 import { createAuditLog } from './audit-log.service'
+import { maskSecret, isMaskedSecret } from '@/lib/utils/mask-secret'
 import type { JwtAccessPayload } from '@/types/auth.types'
+
+interface AiStudioConfig {
+  gemini_api_key: string
+  enabled: boolean
+}
+
+/**
+ * Pure merge rule for the AI Studio config sub-document: an omitted field
+ * keeps its current value, a resubmitted mask is ignored (the admin didn't
+ * change it), anything else — including an explicit empty string, which
+ * clears the key — replaces it.
+ */
+export function resolveAiStudioUpdate(
+  current: AiStudioConfig,
+  incoming: Partial<AiStudioConfig> | undefined,
+): AiStudioConfig {
+  if (!incoming) return current
+
+  let gemini_api_key = current.gemini_api_key
+  if (incoming.gemini_api_key !== undefined && !isMaskedSecret(incoming.gemini_api_key)) {
+    gemini_api_key = incoming.gemini_api_key
+  }
+
+  const enabled = incoming.enabled !== undefined ? Boolean(incoming.enabled) : current.enabled
+
+  return { gemini_api_key, enabled }
+}
+
+const DEFAULT_AI_STUDIO: AiStudioConfig = { gemini_api_key: '', enabled: false }
+
+/** Raw, unmasked config for server-to-server use only — never expose via a route. */
+export async function getAiStudioConfig(): Promise<AiStudioConfig> {
+  const settings = await SystemSettings.findOne({ key: 'default' }).lean()
+  return (settings as unknown as { ai_studio?: AiStudioConfig })?.ai_studio ?? DEFAULT_AI_STUDIO
+}
 
 function normalizeMembers(value: unknown) {
   if (!Array.isArray(value)) return []
@@ -37,6 +73,10 @@ export async function getSystemSettings() {
       address_bn: String(legacySettings.address_bn ?? legacySettings.address ?? ''),
       address_en: String(legacySettings.address_en ?? legacySettings.address ?? ''),
       members: normalizeMembers(legacySettings.members),
+      ai_studio: (() => {
+        const aiStudio = (legacySettings.ai_studio as AiStudioConfig | undefined) ?? DEFAULT_AI_STUDIO
+        return { gemini_api_key: maskSecret(aiStudio.gemini_api_key), enabled: aiStudio.enabled }
+      })(),
     }
   }
 
@@ -50,6 +90,7 @@ export async function getSystemSettings() {
     address_bn: '',
     address_en: '',
     members: [],
+    ai_studio: { gemini_api_key: '', enabled: false },
   }
 }
 
@@ -64,6 +105,13 @@ export async function updateSystemSettings(dto: unknown, actor: JwtAccessPayload
     throw new ValidationError('English union name is required')
   }
 
+  const previous = await SystemSettings.findOne({ key: 'default' }).lean()
+  const previousAiStudio = (previous as unknown as { ai_studio?: AiStudioConfig })?.ai_studio ?? DEFAULT_AI_STUDIO
+  const nextAiStudio = resolveAiStudioUpdate(
+    previousAiStudio,
+    body.ai_studio as Partial<AiStudioConfig> | undefined,
+  )
+
   const payload = {
     key: 'default',
     union_name_bn: String(body.union_name_bn ?? body.union_name ?? '').trim(),
@@ -74,10 +122,9 @@ export async function updateSystemSettings(dto: unknown, actor: JwtAccessPayload
     address_bn: String(body.address_bn ?? body.address ?? '').trim(),
     address_en: String(body.address_en ?? body.address ?? '').trim(),
     members: normalizeMembers(body.members),
+    ai_studio: nextAiStudio,
     updated_by: new mongoose.Types.ObjectId(actor.sub),
   }
-
-  const previous = await SystemSettings.findOne({ key: 'default' }).lean()
 
   const settings = await SystemSettings.findOneAndUpdate(
     { key: 'default' },
@@ -99,5 +146,9 @@ export async function updateSystemSettings(dto: unknown, actor: JwtAccessPayload
     status: 'success',
   })
 
-  return settings.toObject()
+  const settingsObj = settings.toObject() as unknown as Record<string, unknown>
+  const savedAiStudio = settingsObj.ai_studio as AiStudioConfig
+  settingsObj.ai_studio = { gemini_api_key: maskSecret(savedAiStudio.gemini_api_key), enabled: savedAiStudio.enabled }
+
+  return settingsObj
 }
