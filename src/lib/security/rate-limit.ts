@@ -106,4 +106,6 @@ export const RATE_LIMITS = {
    * quickly does not come near 120 mutations in a minute.
    */
   write: { limit: 120, windowMs: 60_000 },
+  /** AI template generation — an external paid API call per request. */
+  aiGenerate: { limit: 20, windowMs: 60 * 60_000 },
 } as const satisfies Record<string, RateLimitOptions>
