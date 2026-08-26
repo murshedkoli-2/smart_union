@@ -278,12 +278,13 @@ function CertificateTemplatesPageView() {
           <div>
             <div className="mb-1 flex items-center justify-between">
               <label className="block text-xs font-medium text-gray-700">Certificate Name *</label>
-              {!editingTemplate && aiEnabled && (
+              {!editingTemplate && (
                 <button
                   type="button"
                   onClick={handleGenerate}
-                  disabled={generating}
-                  className="text-xs font-medium text-green-700 hover:underline disabled:opacity-50"
+                  disabled={generating || !aiEnabled}
+                  title={!aiEnabled ? 'Enable AI Studio in Admin → AI Studio to use this' : undefined}
+                  className="text-xs font-medium text-green-700 hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {generating ? 'Generating...' : '✨ Generate with AI'}
                 </button>

@@ -136,19 +136,74 @@ export async function updateSystemSettings(dto: unknown, actor: JwtAccessPayload
     throw new ValidationError('Failed to save system settings')
   }
 
+  const settingsObj = settings.toObject() as unknown as Record<string, unknown>
+  const savedAiStudio = settingsObj.ai_studio as AiStudioConfig
+
+  const maskedPrevious = previous
+    ? {
+        ...(previous as unknown as Record<string, unknown>),
+        ai_studio: {
+          gemini_api_key: maskSecret(previousAiStudio.gemini_api_key),
+          enabled: previousAiStudio.enabled,
+        },
+      }
+    : previous
+  const maskedAfter = {
+    ...settingsObj,
+    ai_studio: { gemini_api_key: maskSecret(savedAiStudio.gemini_api_key), enabled: savedAiStudio.enabled },
+  }
+
   await createAuditLog({
     user_id: actor.sub,
     user_role: actor.role,
     action: 'system_settings.update',
     target_model: 'SystemSettings',
     target_id: settings._id as mongoose.Types.ObjectId,
-    changes: { before: previous, after: settings.toObject() },
+    changes: { before: maskedPrevious, after: maskedAfter },
     status: 'success',
   })
 
-  const settingsObj = settings.toObject() as unknown as Record<string, unknown>
-  const savedAiStudio = settingsObj.ai_studio as AiStudioConfig
   settingsObj.ai_studio = { gemini_api_key: maskSecret(savedAiStudio.gemini_api_key), enabled: savedAiStudio.enabled }
 
   return settingsObj
+}
+
+export async function updateAiStudioConfig(
+  dto: unknown,
+  actor: JwtAccessPayload,
+): Promise<{ gemini_api_key: string; enabled: boolean }> {
+  const body = dto as Record<string, unknown>
+
+  const previous = await SystemSettings.findOne({ key: 'default' }).lean()
+  const previousAiStudio =
+    (previous as unknown as { ai_studio?: AiStudioConfig })?.ai_studio ?? DEFAULT_AI_STUDIO
+  const nextAiStudio = resolveAiStudioUpdate(
+    previousAiStudio,
+    body.ai_studio as Partial<AiStudioConfig> | undefined,
+  )
+
+  const settings = await SystemSettings.findOneAndUpdate(
+    { key: 'default' },
+    { $set: { ai_studio: nextAiStudio }, $setOnInsert: { key: 'default' } },
+    { upsert: true, returnDocument: 'after' },
+  )
+
+  if (!settings) {
+    throw new ValidationError('Failed to save AI Studio settings')
+  }
+
+  const maskedPrevious = { gemini_api_key: maskSecret(previousAiStudio.gemini_api_key), enabled: previousAiStudio.enabled }
+  const maskedNext = { gemini_api_key: maskSecret(nextAiStudio.gemini_api_key), enabled: nextAiStudio.enabled }
+
+  await createAuditLog({
+    user_id: actor.sub,
+    user_role: actor.role,
+    action: 'system_settings.ai_studio_update',
+    target_model: 'SystemSettings',
+    target_id: settings._id as mongoose.Types.ObjectId,
+    changes: { before: { ai_studio: maskedPrevious }, after: { ai_studio: maskedNext } },
+    status: 'success',
+  })
+
+  return maskedNext
 }

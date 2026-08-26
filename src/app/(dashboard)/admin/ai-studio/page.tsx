@@ -27,7 +27,7 @@ function AiStudioForm({
     e.preventDefault()
     setSaving(true)
 
-    const res = await apiCall('/api/system-settings', {
+    const res = await apiCall('/api/system-settings/ai-studio', {
       method: 'PATCH',
       body: JSON.stringify({ ai_studio: { gemini_api_key: apiKey, enabled } }),
     })
