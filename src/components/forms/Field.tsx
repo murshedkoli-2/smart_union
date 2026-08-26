@@ -39,7 +39,7 @@ export function TextField({
   onChange: (value: string) => void
   required?: boolean
   placeholder?: string
-  type?: 'text' | 'tel' | 'date' | 'number'
+  type?: 'text' | 'tel' | 'date' | 'number' | 'email' | 'password'
   autoComplete?: string
   min?: string
   step?: string

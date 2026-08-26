@@ -1,5 +1,6 @@
 import mongoose from 'mongoose'
 import Citizen from '@/models/Citizen'
+import User from '@/models/User'
 import { CreateCitizenSchema } from '@/lib/utils/validators'
 import { escapeRegex } from '@/lib/utils/mongo-query'
 import {
@@ -217,6 +218,15 @@ export async function approveCitizen(id: string, actor: JwtAccessPayload) {
   citizen.approved_at = new Date()
   await citizen.save()
 
+  // The citizen's own login account was created 'pending' at self-registration
+  // and otherwise never gets activated — approving the profile must activate it.
+  if (citizen.user_id) {
+    await User.updateOne(
+      { _id: citizen.user_id, status: 'pending' },
+      { $set: { status: 'active' } },
+    )
+  }
+
   await createAuditLog({
     user_id: actor.sub,
     user_role: actor.role,
@@ -244,6 +254,13 @@ export async function rejectCitizen(
 
   citizen.status = 'rejected'
   await citizen.save()
+
+  if (citizen.user_id) {
+    await User.updateOne(
+      { _id: citizen.user_id, status: 'pending' },
+      { $set: { status: 'inactive' } },
+    )
+  }
 
   await createAuditLog({
     user_id: actor.sub,

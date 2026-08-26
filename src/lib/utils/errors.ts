@@ -59,9 +59,3 @@ export class TooManyRequestsError extends AppError {
     this.retryAfter = retryAfter
   }
 }
-
-export class ServiceError extends AppError {
-  constructor(message = 'Internal server error') {
-    super(message, 500, false)
-  }
-}

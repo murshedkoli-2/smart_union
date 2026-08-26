@@ -74,6 +74,3 @@ export function softDeletePlugin(schema: Schema): void {
     pipeline.unshift({ $match: { deleted_at: null } })
   })
 }
-
-/** Filter fragment for the rare query built outside Mongoose. */
-export const NOT_DELETED = { deleted_at: null } as const

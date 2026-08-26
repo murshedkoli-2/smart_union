@@ -3,17 +3,6 @@ import type { UnionMember, UnionSettings } from '@/types/certificate.types'
 
 export type { UnionMember, UnionSettings } from '@/types/certificate.types'
 
-export const emptySettings = (): UnionSettings => ({
-  union_name_bn: '',
-  union_name_en: '',
-  chairman_name_bn: '',
-  chairman_name_en: '',
-  union_logo: '',
-  address_bn: '',
-  address_en: '',
-  members: [],
-})
-
 export const emptyMember = (): UnionMember => ({
   name_bn: '',
   name_en: '',

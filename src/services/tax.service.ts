@@ -413,6 +413,7 @@ export async function createTaxForNewFiscalYear(
 ) {
   // Get all citizens who have a holding_no
   const citizens = await Citizen.find({ holding_no: { $ne: null } }).lean()
+  const citizenIds = citizens.map((citizen) => citizen._id)
 
   const results = {
     total_citizens: citizens.length,
@@ -421,25 +422,31 @@ export async function createTaxForNewFiscalYear(
     errors: [] as string[],
   }
 
+  // Batch-fetch existing records for this fiscal year and each citizen's most recent
+  // amount, instead of two queries per citizen inside the loop below.
+  const existingForYear = await Tax.find({
+    citizen_id: { $in: citizenIds },
+    fiscal_year: fiscalYear,
+  })
+    .select('citizen_id')
+    .lean()
+  const existingCitizenIds = new Set(existingForYear.map((tax) => String(tax.citizen_id)))
+
+  const lastAmounts = await Tax.aggregate<{ _id: mongoose.Types.ObjectId; amount: number }>([
+    { $match: { citizen_id: { $in: citizenIds } } },
+    { $sort: { citizen_id: 1, createdAt: -1 } },
+    { $group: { _id: '$citizen_id', amount: { $first: '$amount' } } },
+  ])
+  const lastAmountByCitizenId = new Map(lastAmounts.map((entry) => [String(entry._id), entry.amount]))
+
   for (const citizen of citizens) {
     try {
-      // Check if tax already exists for this citizen in this fiscal year
-      const existing = await Tax.findOne({
-        citizen_id: citizen._id,
-        fiscal_year: fiscalYear,
-      }).lean()
-
-      if (existing) {
+      if (existingCitizenIds.has(String(citizen._id))) {
         results.skipped++
         continue
       }
 
-      // Get the most recent tax record to copy the amount
-      const lastTax = await Tax.findOne({ citizen_id: citizen._id })
-        .sort({ createdAt: -1 })
-        .lean()
-
-      const amount = lastTax?.amount ?? defaultAmount
+      const amount = lastAmountByCitizenId.get(String(citizen._id)) ?? defaultAmount
 
       // Create new tax record for the new fiscal year
       await Tax.create({
