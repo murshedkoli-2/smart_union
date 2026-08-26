@@ -70,6 +70,7 @@ function CertificateTemplatesPageView() {
   const [saving, setSaving] = useState(false)
   const [aiEnabled, setAiEnabled] = useState(false)
   const [generating, setGenerating] = useState(false)
+  const [optionsDraft, setOptionsDraft] = useState<Record<number, string>>({})
 
   useEffect(() => {
     let cancelled = false
@@ -143,6 +144,7 @@ function CertificateTemplatesPageView() {
   const handleOpenCreate = () => {
     setForm({ ...defaultForm })
     setEditingTemplate(null)
+    setOptionsDraft({})
     setShowCreate(true)
   }
 
@@ -161,6 +163,7 @@ function CertificateTemplatesPageView() {
       dynamic_fields: template.dynamic_fields ?? [],
     })
     setEditingTemplate(template)
+    setOptionsDraft({})
     setShowCreate(true)
   }
 
@@ -168,6 +171,7 @@ function CertificateTemplatesPageView() {
     setShowCreate(false)
     setEditingTemplate(null)
     setForm({ ...defaultForm })
+    setOptionsDraft({})
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -274,7 +278,7 @@ function CertificateTemplatesPageView() {
           <div>
             <div className="mb-1 flex items-center justify-between">
               <label className="block text-xs font-medium text-gray-700">Certificate Name *</label>
-              {aiEnabled && (
+              {!editingTemplate && aiEnabled && (
                 <button
                   type="button"
                   onClick={handleGenerate}
@@ -429,15 +433,23 @@ function CertificateTemplatesPageView() {
                   {field.field_type === 'select' && (
                     <input
                       type="text"
-                      value={field.options.join(', ')}
+                      value={optionsDraft[index] ?? field.options.join(', ')}
                       onChange={(e) => {
                         const value = e.target.value
+                        setOptionsDraft((current) => ({ ...current, [index]: value }))
+                      }}
+                      onBlur={(e) => {
+                        const value = e.target.value
+                        const parsed = value.split(',').map((o) => o.trim()).filter(Boolean)
                         setForm((current) => ({
                           ...current,
-                          dynamic_fields: current.dynamic_fields.map((f, i) =>
-                            i === index ? { ...f, options: value.split(',').map((o) => o.trim()).filter(Boolean) } : f,
-                          ),
+                          dynamic_fields: current.dynamic_fields.map((f, i) => (i === index ? { ...f, options: parsed } : f)),
                         }))
+                        setOptionsDraft((current) => {
+                          const next = { ...current }
+                          delete next[index]
+                          return next
+                        })
                       }}
                       placeholder="option1, option2"
                       className="w-40 rounded border border-gray-200 px-2 py-1 text-xs"
@@ -459,12 +471,13 @@ function CertificateTemplatesPageView() {
                   </label>
                   <button
                     type="button"
-                    onClick={() =>
+                    onClick={() => {
                       setForm((current) => ({
                         ...current,
                         dynamic_fields: current.dynamic_fields.filter((_, i) => i !== index),
                       }))
-                    }
+                      setOptionsDraft({})
+                    }}
                     className="ml-auto text-xs text-red-600 hover:underline"
                   >
                     Remove
