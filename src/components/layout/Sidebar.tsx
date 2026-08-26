@@ -42,6 +42,7 @@ const NAV: NavGroup[] = [
     sectionKey: 'adminSection',
     items: [
       { href: '/admin/system-settings', labelKey: 'systemSettings', icon: '⚙', permission: PERMISSIONS.SETTINGS_MANAGE },
+      { href: '/admin/ai-studio', labelKey: 'aiStudio', icon: '✨', permission: PERMISSIONS.SETTINGS_MANAGE },
       { href: '/admin/users', labelKey: 'users', icon: '👥', permission: PERMISSIONS.USER_MANAGE },
       { href: '/admin/audit-logs', labelKey: 'auditLogs', icon: '📋', permission: PERMISSIONS.AUDIT_VIEW },
     ],

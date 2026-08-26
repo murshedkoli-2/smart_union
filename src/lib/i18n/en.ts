@@ -127,6 +127,7 @@ export const en = {
   warish: 'Warish',
   relief: 'Relief',
   systemSettings: 'System Settings',
+  aiStudio: 'AI Studio',
   users: 'Users',
   auditLogs: 'Audit Logs',
   myProfile: 'My Profile',

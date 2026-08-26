@@ -127,6 +127,7 @@ export const bn: Record<keyof typeof en, string> = {
   warish: 'ওয়ারিশ',
   relief: 'ত্রাণ',
   systemSettings: 'সিস্টেম সেটিংস',
+  aiStudio: 'এআই স্টুডিও',
   users: 'ব্যবহারকারী',
   auditLogs: 'অডিট লগ',
   myProfile: 'আমার প্রোফাইল',
