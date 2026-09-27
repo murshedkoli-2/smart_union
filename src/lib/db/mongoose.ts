@@ -1,11 +1,5 @@
 import mongoose from 'mongoose'
 
-const MONGODB_URI = process.env.MONGODB_URI!
-
-if (!MONGODB_URI) {
-  throw new Error('MONGODB_URI environment variable is not defined')
-}
-
 interface MongooseCache {
   conn: typeof mongoose | null
   promise: Promise<typeof mongoose> | null
@@ -21,6 +15,15 @@ const cached: MongooseCache = global.mongooseCache ?? { conn: null, promise: nul
 global.mongooseCache = cached
 
 export async function connectDB(): Promise<typeof mongoose> {
+  // Route handlers are imported during `next build`, where deployment secrets
+  // are intentionally unavailable. Validate only when a request actually
+  // needs a database connection so builds remain hermetic while production
+  // requests still fail clearly if configuration is missing.
+  const mongodbUri = process.env.MONGODB_URI
+  if (!mongodbUri) {
+    throw new Error('MONGODB_URI environment variable is not defined')
+  }
+
   if (cached.conn) {
     return cached.conn
   }
@@ -30,7 +33,7 @@ export async function connectDB(): Promise<typeof mongoose> {
       bufferCommands: false,
       maxPoolSize: 10,
     }
-    cached.promise = mongoose.connect(MONGODB_URI, opts)
+    cached.promise = mongoose.connect(mongodbUri, opts)
   }
 
   try {
